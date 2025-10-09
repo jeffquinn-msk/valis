@@ -9,7 +9,12 @@ import os
 import pathlib
 import cv2
 import numpy as np
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+    HAS_SIMPLEITK = True
+except ImportError:
+    sitk = None
+    HAS_SIMPLEITK = False
 from skimage import transform, color, filters, exposure, util
 from skimage import color as skcolor
 import pyvips
@@ -17,6 +22,7 @@ from copy import deepcopy
 import multiprocessing
 from pqdm.threads import pqdm
 import inspect
+from colorama import Fore
 from . import viz
 from . import warp_tools
 from . import preprocessing
@@ -692,6 +698,11 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         See https://simpleelastix.readthedocs.io/Introduction.html
         for advice on parameter selection
         """
+        if not HAS_SIMPLEITK:
+            msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use SimpleElastix"
+            valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+            raise ImportError("SimpleITK is required for SimpleElastix registration")
+
         p = sitk.GetDefaultParameterMap("bspline")
         p["Metric"] = ['AdvancedMattesMutualInformation', 'TransformBendingEnergyPenalty']
         p["MaximumNumberOfIterations"] = ['1500']  # Can try up to 2000
@@ -809,6 +820,10 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
             will be used to create the mask.
 
         """
+        if not HAS_SIMPLEITK:
+            msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use SimpleElastix"
+            valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+            raise ImportError("SimpleITK is required for SimpleElastix registration")
 
         elastix_image_filter_obj = sitk.ElastixImageFilter()
 
@@ -1180,6 +1195,11 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
         """
         See https://simpleelastix.readthedocs.io/Introduction.html for advice on parameter selection
         """
+        if not HAS_SIMPLEITK:
+            msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use GroupwiseElastix"
+            valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+            raise ImportError("SimpleITK is required for GroupwiseElastix registration")
+
         p = sitk.GetDefaultParameterMap("groupwise")
         p["Metric"] = ['AdvancedMattesMutualInformation']
         p["MaximumNumberOfIterations"] = ['1500']  # Can try up to 2000
@@ -1203,6 +1223,11 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
         return p
 
     def calc(self, img_list, mask=None, *args, **kwargs):
+        if not HAS_SIMPLEITK:
+            msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use GroupwiseElastix"
+            valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+            raise ImportError("SimpleITK is required for GroupwiseElastix registration")
+
         if self.params is None:
             self.params = SimpleElastixGroupwiseWarper.get_default_params(self.img_list[0].shape[:2])
 

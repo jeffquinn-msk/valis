@@ -17,7 +17,13 @@ import weightedstats
 import warnings
 import pyvips
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+    HAS_SIMPLEITK = True
+except ImportError:
+    sitk = None
+    HAS_SIMPLEITK = False
+
 from colorama import Fore
 import os
 import re
@@ -670,6 +676,10 @@ def mattes_mi(img1, img2, nbins=50,  mask=None):
         Mattes mutation inormation
 
     """
+    if not HAS_SIMPLEITK:
+        msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use mattes_mi"
+        valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+        raise ImportError("SimpleITK is required for mattes_mi function")
 
     reg = sitk.ImageRegistrationMethod()
     reg.SetMetricSamplingStrategy(reg.NONE)
@@ -1929,6 +1939,10 @@ def get_inverse_field(backwards_xy_deltas, n_inter=10):
     """
     Invert transform
     """
+    if not HAS_SIMPLEITK:
+        msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use get_inverse_field"
+        valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+        raise ImportError("SimpleITK is required for get_inverse_field function")
 
     sitk_bk_dxdy = sitk.GetImageFromArray(np.dstack(backwards_xy_deltas),  isVector=True)
     sitk_fw_dxdy = sitk.IterativeInverseDisplacementField(sitk_bk_dxdy, numberOfIterations=n_inter)

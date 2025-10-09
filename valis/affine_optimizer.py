@@ -18,11 +18,18 @@ import numpy as np
 from skimage import transform, util
 import cv2
 import os
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+    HAS_SIMPLEITK = True
+except ImportError:
+    sitk = None
+    HAS_SIMPLEITK = False
 from scipy import interpolate
 import pathlib
+from colorama import Fore
 from . warp_tools import get_affine_transformation_params, \
     get_corners_of_image, warp_xy
+from . import valtils
 
 # Cost functions #
 EPS = np.finfo("float").eps
@@ -810,6 +817,10 @@ class AffineOptimizerMattesMI(AffineOptimizer):
         fixed_xy : ndarray, optional
             (N, 2) array containing points in the fixed image that correspond to those in the moving image
         """
+        if not HAS_SIMPLEITK:
+            msg = "SimpleITK (with Elastix) is not installed. Please see installation instructions at https://simpleelastix.readthedocs.io/GettingStarted.html to use AffineOptimizerMattesMI"
+            valtils.print_warning(msg, warning_type=None, rgb=Fore.RED)
+            raise ImportError("SimpleITK is required for AffineOptimizerMattesMI")
 
         if initial_M is None:
             initial_M = np.eye(3)

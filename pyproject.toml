@@ -40,7 +40,6 @@ dependencies = [
     "einops<1.0.0,>=0.8.0",
     "torchvision<1.0.0,>=0.20.1",
     "openpyxl<4.0.0,>=3.1.5",
-    "simpleitk<3.0.0,>=2.4.1",
     "lxml>=5.4.0",
     "pyvips>2.2.1",
     "torch>=2.7.1",
@@ -48,6 +47,9 @@ dependencies = [
 name = "valis-wsi"
 version = "1.2.0"
 description = ""
+
+[project.optional-dependencies]
+elastix = ["simpleitk<3.0.0,>=2.4.1"]
 
 [dependency-groups]
 dev = [
