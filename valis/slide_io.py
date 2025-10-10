@@ -1693,11 +1693,7 @@ class VipsSlideReader(SlideReader):
             slide_meta.channel_names = None
 
         if self.is_ome:
-            toilet_roll = pyvips.Image.new_from_file(self.src_f, n=-1, subifd=-1)
-            page = pyvips.Image.new_from_file(self.src_f, n=1, subifd=-1, access='random')
-            n_pages = toilet_roll.height/page.height
-            if n_pages > 1:
-                slide_meta.n_channels = int(n_pages)
+            slide_meta.n_channels = 1
 
         return slide_meta
 
@@ -1802,9 +1798,6 @@ class VipsSlideReader(SlideReader):
         if self.use_openslide:
             # Keep rgb=False returns rgba. Makes it possible to avoid having black pixels for background. Can remove alpha channel after
             vips_slide = pyvips.Image.new_from_file(self.src_f, level=level, autocrop=True, rgb=False, access='random')[0:3]
-
-        elif self.is_ome:
-            vips_slide = self._slide2vips_ome_one_series(level=level, *args, **kwargs)
 
         else:
             try:
@@ -2928,7 +2921,7 @@ def get_slide_reader(src_f, series=None):
     can_use_openslide = check_to_use_openslide(src_f) # Checks openslide is installed
 
     # Give preference to vips/openslide since it will be fastest
-    if (can_use_vips or can_use_openslide) and one_series and series in [0, None] and not is_flattened_tiff:
+    if (can_use_vips or can_use_openslide) and not is_flattened_tiff:
         return VipsSlideReader
 
     if is_czi:
