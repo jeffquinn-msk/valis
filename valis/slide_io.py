@@ -2918,7 +2918,7 @@ def get_slide_reader(src_f, series=None):
     bf_reads_flat = False
     if is_tiff:
         is_flattened_tiff, _ = check_flattened_pyramid_tiff(src_f, check_with_bf=False)[0:2]
-
+    import ipdb;ipdb.set_trace()
     one_series = True
     if is_ome_tiff:
         ome_obj = get_ome_obj(src_f)
