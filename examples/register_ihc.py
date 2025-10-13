@@ -1,4 +1,4 @@
-""" Registration of whole slide images (WSI)
+"""Registration of whole slide images (WSI)
 
 This example shows how to register, warp, and save a collection
 of whole slide images (WSI) using the default parameters.
@@ -46,7 +46,6 @@ are, then one can warp and save all of the slides.
 
 """
 
-
 import torch
 import time
 import os
@@ -64,7 +63,9 @@ stop = time.time()
 elapsed = stop - start
 
 # Check results in registered_slide_dst_dir. If they look good, export the registered slides
-registered_slide_dst_dir = os.path.join("./expected_results/registered_slides", registrar.name)
+registered_slide_dst_dir = os.path.join(
+    "./expected_results/registered_slides", registrar.name
+)
 start = time.time()
 registrar.warp_and_save_slides(registered_slide_dst_dir)
 stop = time.time()

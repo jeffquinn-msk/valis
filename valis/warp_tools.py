@@ -31,6 +31,7 @@ def is_pyvips_22():
     return version.parse(pyvips.__version__) >= version.parse("2.2.0")
 
 
+
 def get_ref_img_idx(img_f_list, ref_img_name=None):
     """Get index of reference image
 
@@ -68,14 +69,18 @@ def get_ref_img_idx(img_f_list, ref_img_name=None):
             ref_img_idx = img_names.index(ref_name_lower)
         except ValueError:
             # Get closest match
-            string_d = [valtils.levenshtein_d(ref_name_lower, img_names[i]) for i in range(len(img_names))]
+            string_d = [
+                valtils.levenshtein_d(ref_name_lower, img_names[i])
+                for i in range(len(img_names))
+            ]
             ref_img_idx = np.argmin(string_d)
-            warning_msg = (f"No files in `img_f_list` match exactly match {ref_img_name}. "
-                           f"Returning closest match, which is {valtils.get_name(img_f_list[ref_img_idx])}")
+            warning_msg = (
+                f"No files in `img_f_list` match exactly match {ref_img_name}. "
+                f"Returning closest match, which is {valtils.get_name(img_f_list[ref_img_idx])}"
+            )
             valtils.print_warning(warning_msg)
 
     return ref_img_idx
-
 
 
 def get_alignment_indices(n_imgs, ref_img_idx=None):
@@ -107,7 +112,7 @@ def get_alignment_indices(n_imgs, ref_img_idx=None):
     """
 
     if ref_img_idx is None:
-        ref_img_idx = n_imgs//2
+        ref_img_idx = n_imgs // 2
 
     matching_indices = [None] * (n_imgs - 1)
     idx = 0
@@ -117,7 +122,7 @@ def get_alignment_indices(n_imgs, ref_img_idx=None):
         matching_indices[idx] = (current_idx, next_idx)
         idx += 1
 
-    for i in range(ref_img_idx, n_imgs-1):
+    for i in range(ref_img_idx, n_imgs - 1):
         current_idx = i + 1
         next_idx = i
         matching_indices[idx] = (current_idx, next_idx)
@@ -127,22 +132,23 @@ def get_alignment_indices(n_imgs, ref_img_idx=None):
 
 
 def calc_memory_size_gb(shape, nchannels, np_dtype):
-    """Estimate amount of space an image will take up, in Gb
-    """
+    """Estimate amount of space an image will take up, in Gb"""
 
-    bitdepth = "".join(re.findall(r'\d+', np_dtype))
+    bitdepth = "".join(re.findall(r"\d+", np_dtype))
     if len(bitdepth) > 0:
         bitdepth = eval(bitdepth)
     else:
         bitdepth = 1
 
-    n_px = nchannels*np.multiply(*shape)
-    gb = ((n_px*8)/bitdepth)/(2**30)
+    n_px = nchannels * np.multiply(*shape)
+    gb = ((n_px * 8) / bitdepth) / (2**30)
 
     return gb
 
 
-def remove_invasive_displacements(bk_dxdy, M, src_shape_rc, out_shape_rc, inpaint_holes=False):
+def remove_invasive_displacements(
+    bk_dxdy, M, src_shape_rc, out_shape_rc, inpaint_holes=False
+):
     """Remove displacements that would distort the image edges
     Finds areas where areas outside of the image get brought inside. Can
     happen if displacements are combined.
@@ -168,21 +174,28 @@ def remove_invasive_displacements(bk_dxdy, M, src_shape_rc, out_shape_rc, inpain
     new_dx = bk_dxdy[0].copy()
     new_dy = bk_dxdy[1].copy()
     if M is not None:
-        affine_mask = warp_img(np.full(src_shape_rc, 255, dtype=np.uint8), M, out_shape_rc=out_shape_rc, interp_method="nearest")
+        affine_mask = warp_img(
+            np.full(src_shape_rc, 255, dtype=np.uint8),
+            M,
+            out_shape_rc=out_shape_rc,
+            interp_method="nearest",
+        )
         if not np.all(out_shape_rc == bk_dxdy[0].shape):
-            affine_mask = resize_img(affine_mask, bk_dxdy[0].shape, interp_method="nearest")
+            affine_mask = resize_img(
+                affine_mask, bk_dxdy[0].shape, interp_method="nearest"
+            )
             new_dx[affine_mask == 0] = 0
             new_dy[affine_mask == 0] = 0
 
     else:
         affine_mask = np.full(out_shape_rc, 255, dtype=np.uint8)
 
-    inv_mask = 255*(affine_mask == 0).astype(np.uint8)
+    inv_mask = 255 * (affine_mask == 0).astype(np.uint8)
     inv_nr = warp_img(inv_mask, bk_dxdy=bk_dxdy)
-    out_to_in = ((inv_nr > 0) & (affine_mask > 0))
+    out_to_in = (inv_nr > 0) & (affine_mask > 0)
 
     selem = morphology.disk(3)
-    out_to_in  = morphology.binary_dilation(out_to_in, selem)
+    out_to_in = morphology.binary_dilation(out_to_in, selem)
 
     new_dy = bk_dxdy[1].copy()
     new_dx = bk_dxdy[0].copy()
@@ -192,12 +205,16 @@ def remove_invasive_displacements(bk_dxdy, M, src_shape_rc, out_shape_rc, inpain
 
     nr_img = np.round(warp_img(affine_mask, bk_dxdy=[new_dx, new_dy])).astype(np.uint8)
 
-    holes_mask = ((nr_img == 0) & (affine_mask > 0))
-    holes_mask = 255*(morphology.binary_dilation(holes_mask, selem)).astype(np.uint8)
+    holes_mask = (nr_img == 0) & (affine_mask > 0)
+    holes_mask = 255 * (morphology.binary_dilation(holes_mask, selem)).astype(np.uint8)
 
     if inpaint_holes and holes_mask.max() > 0:
-        new_dx = cv2.inpaint(new_dx.astype(np.float32), holes_mask, 3, cv2.INPAINT_TELEA)
-        new_dy = cv2.inpaint(new_dy.astype(np.float32), holes_mask, 3, cv2.INPAINT_TELEA)
+        new_dx = cv2.inpaint(
+            new_dx.astype(np.float32), holes_mask, 3, cv2.INPAINT_TELEA
+        )
+        new_dy = cv2.inpaint(
+            new_dy.astype(np.float32), holes_mask, 3, cv2.INPAINT_TELEA
+        )
     else:
         new_dx[holes_mask > 0] = 0
         new_dy[holes_mask > 0] = 0
@@ -230,15 +247,13 @@ def resize_img(img, out_shape_rc, interp_method="bicubic"):
     out_h, out_w = out_shape_rc
 
     src_shape_rc = np.array([img.height, img.width])
-    sy, sx = (np.array(out_shape_rc)/src_shape_rc)
+    sy, sx = np.array(out_shape_rc) / src_shape_rc
     S = [sx, 0, 0, sy]
 
     interpolator = pyvips.Interpolate.new(interp_method)
-    resized = img.affine(S,
-                         oarea=[0, 0, out_w, out_h],
-                         interpolate=interpolator,
-                         premultiplied=True
-                         )
+    resized = img.affine(
+        S, oarea=[0, 0, out_w, out_h], interpolate=interpolator, premultiplied=True
+    )
 
     if is_array:
         resized = vips2numpy(resized)
@@ -252,16 +267,18 @@ def scale_dxdy(dxdy, out_shape_rc):
     else:
         vips_dxdy = dxdy
 
-    sxy = (np.array(out_shape_rc)/np.array([vips_dxdy.height, vips_dxdy.width]))[::-1]
-    scaled_dx = float(sxy[0])*vips_dxdy[0]
-    scaled_dy = float(sxy[1])*vips_dxdy[1]
+    sxy = (np.array(out_shape_rc) / np.array([vips_dxdy.height, vips_dxdy.width]))[::-1]
+    scaled_dx = float(sxy[0]) * vips_dxdy[0]
+    scaled_dy = float(sxy[1]) * vips_dxdy[1]
     scaled_dxdy = scaled_dx.bandjoin(scaled_dy)
     scaled_dxdy = resize_img(scaled_dxdy, out_shape_rc)
 
     return scaled_dxdy
 
 
-def get_src_img_shape_and_M(M, transformation_src_shape_rc, transformation_dst_shape_rc, dst_shape_rc):
+def get_src_img_shape_and_M(
+    M, transformation_src_shape_rc, transformation_dst_shape_rc, dst_shape_rc
+):
     """Determine the size of an image that, when warped, will have the same relative position
     as in the original transformation dst image.
 
@@ -299,13 +316,15 @@ def get_src_img_shape_and_M(M, transformation_src_shape_rc, transformation_dst_s
     """
 
     img_corners_xy = get_corners_of_image(transformation_src_shape_rc)[:, ::-1]
-    warped_corners = warp_xy(img_corners_xy, M=M,
-                             transformation_src_shape_rc=transformation_src_shape_rc,
-                             transformation_dst_shape_rc=transformation_dst_shape_rc
-                             )
+    warped_corners = warp_xy(
+        img_corners_xy,
+        M=M,
+        transformation_src_shape_rc=transformation_src_shape_rc,
+        transformation_dst_shape_rc=transformation_dst_shape_rc,
+    )
 
-    dst_sxy = (np.array(dst_shape_rc)/np.array(transformation_dst_shape_rc))[::-1]
-    scaled_warped_corners = dst_sxy*warped_corners
+    dst_sxy = (np.array(dst_shape_rc) / np.array(transformation_dst_shape_rc))[::-1]
+    scaled_warped_corners = dst_sxy * warped_corners
     scaled_M = scale_M(M, *dst_sxy)
 
     scaled_unwarped_corners = warp_xy(scaled_warped_corners, M=np.linalg.inv(scaled_M))
@@ -337,7 +356,7 @@ def save_img(dst_f, img, thumbnail_size=None):
 
     if thumbnail_size is not None:
         vips_wh = np.array([vips_img.width, vips_img.height])
-        s = np.min(thumbnail_size/vips_wh)
+        s = np.min(thumbnail_size / vips_wh)
         if s < 1:
             out_img = vips_img.resize(s)
         else:
@@ -351,7 +370,9 @@ def save_img(dst_f, img, thumbnail_size=None):
 def get_pts_in_bbox(xy, xywh):
     x0, y0 = xywh[0:2]
     x1, y1 = xywh[0:2] + xywh[2:]
-    in_bbox_idx = np.where((xy[:, 0] >= x0)  & (xy[:, 0] < x1) & (xy[:, 1] >= y0)  & (xy[:, 1] < y1)==True)[0]
+    in_bbox_idx = np.where(
+        (xy[:, 0] >= x0) & (xy[:, 0] < x1) & (xy[:, 1] >= y0) & (xy[:, 1] < y1) == True
+    )[0]
     xy_in_bbox = xy[in_bbox_idx]
     return xy_in_bbox, in_bbox_idx
 
@@ -376,7 +397,7 @@ def get_img_dimensions(img_f):
 
 
 def get_shape(img):
-    """ Get shape of image (row, col, nchannels)
+    """Get shape of image (row, col, nchannels)
 
     Parameters
     ----------
@@ -408,9 +429,7 @@ def get_shape(img):
 
 
 def apply_mask(img, mask):
-    """Mask an image
-
-    """
+    """Mask an image"""
     mask_is_vips = isinstance(mask, pyvips.Image)
     if not mask_is_vips:
         vips_mask = numpy2vips(mask)
@@ -478,12 +497,16 @@ def get_grid_bboxes(shape_rc, bbox_w, bbox_h, inclusive=False):
             temp_y = np.hstack([temp_y, shape_rc[0]])
 
     tl_y, tl_x = np.meshgrid(temp_y, temp_x, indexing="ij")
-    bbox_list = [[tl_x[i, j],
-                  tl_y[i, j],
-                  tl_x[i+1, j+1] - tl_x[i, j],
-                  tl_y[i+1, j+1] - tl_y[i, j]]
-                 for i in range(len(temp_y)-1)
-                 for j in range(len(temp_x)-1)]
+    bbox_list = [
+        [
+            tl_x[i, j],
+            tl_y[i, j],
+            tl_x[i + 1, j + 1] - tl_x[i, j],
+            tl_y[i + 1, j + 1] - tl_y[i, j],
+        ]
+        for i in range(len(temp_y) - 1)
+        for j in range(len(temp_x) - 1)
+    ]
 
     return np.array(bbox_list)
 
@@ -493,7 +516,7 @@ def expand_bbox(bbox_xywh, expand, shape_rc=None):
     new_xy[new_xy < 0] = 0
     new_x, new_y = new_xy
 
-    new_w, new_h = bbox_xywh[2:] + 2*expand
+    new_w, new_h = bbox_xywh[2:] + 2 * expand
 
     if shape_rc is not None:
         h, w = shape_rc
@@ -535,7 +558,9 @@ def stitch_tiles(tile_list, tile_bboxes, nrow, ncol, overlap):
             offset = x_offset - row_mosaic.width
             right_tile = col_tiles[j]
 
-            row_mosaic = row_mosaic.merge(right_tile, "horizontal", offset, 0, mblend=overlap)
+            row_mosaic = row_mosaic.merge(
+                right_tile, "horizontal", offset, 0, mblend=overlap
+            )
         row_mosaics[i] = row_mosaic
 
     stitched = row_mosaics[0]
@@ -558,7 +583,7 @@ def stitch_tiles(tile_list, tile_bboxes, nrow, ncol, overlap):
 
 
 def index2d_to_1d(row, col, ncol):
-    idx = (ncol*row) + col
+    idx = (ncol * row) + col
 
     return idx
 
@@ -592,12 +617,16 @@ def get_triangular_mesh(x_pos, y_pos):
     """
 
     tl_y, tl_x = np.meshgrid(y_pos, x_pos, indexing="ij")
-    grid_boxes_wh = [[tl_x[i, j],
-                    tl_y[i, j],
-                    tl_x[i+1, j+1] - tl_x[i, j],
-                    tl_y[i+1, j+1] - tl_y[i, j]]
-                    for i in range(len(y_pos)-1)
-                    for j in range(len(x_pos)-1)]
+    grid_boxes_wh = [
+        [
+            tl_x[i, j],
+            tl_y[i, j],
+            tl_x[i + 1, j + 1] - tl_x[i, j],
+            tl_y[i + 1, j + 1] - tl_y[i, j],
+        ]
+        for i in range(len(y_pos) - 1)
+        for j in range(len(x_pos) - 1)
+    ]
 
     grid_boxes_xy = [bbox2xy(wh) for wh in grid_boxes_wh]
     vert_dict = {}
@@ -605,7 +634,7 @@ def get_triangular_mesh(x_pos, y_pos):
     current_max_vert_id = 0
     for bbox_xy in grid_boxes_xy:
         bbox = xy2bbox(bbox_xy)
-        bbox_center_xy = tuple(bbox[0:2] + bbox[2:]/2)
+        bbox_center_xy = tuple(bbox[0:2] + bbox[2:] / 2)
         bbox_tuples = [tuple(xy) for xy in bbox_xy]
         for vert in bbox_tuples:
             if not vert in vert_dict:
@@ -617,24 +646,31 @@ def get_triangular_mesh(x_pos, y_pos):
 
         # 4 triangles in bbox. Bbbox : 0=TL, 1=TR, 2=BR, 3=BL #
         # Each sorted clockwise, with A= being most top left
-        left_face = [vert_dict[bbox_tuples[0]],
-                    vert_dict[bbox_center_xy],
-                    vert_dict[bbox_tuples[3]]]
+        left_face = [
+            vert_dict[bbox_tuples[0]],
+            vert_dict[bbox_center_xy],
+            vert_dict[bbox_tuples[3]],
+        ]
 
-        top_face = [vert_dict[bbox_tuples[0]],
-                        vert_dict[bbox_tuples[1]],
-                        vert_dict[bbox_center_xy]]
+        top_face = [
+            vert_dict[bbox_tuples[0]],
+            vert_dict[bbox_tuples[1]],
+            vert_dict[bbox_center_xy],
+        ]
 
-        right_face = [vert_dict[bbox_center_xy],
-                        vert_dict[bbox_tuples[1]],
-                        vert_dict[bbox_tuples[2]]]
+        right_face = [
+            vert_dict[bbox_center_xy],
+            vert_dict[bbox_tuples[1]],
+            vert_dict[bbox_tuples[2]],
+        ]
 
-        btm_face = [vert_dict[bbox_center_xy],
-                    vert_dict[bbox_tuples[2]],
-                    vert_dict[bbox_tuples[3]]]
+        btm_face = [
+            vert_dict[bbox_center_xy],
+            vert_dict[bbox_tuples[2]],
+            vert_dict[bbox_tuples[3]],
+        ]
 
         tri_faces.extend([left_face, top_face, right_face, btm_face])
-
 
     temp_tri_verts = list(vert_dict.keys())
     tri_verts = np.array([temp_tri_verts[i] for i in vert_dict.values()])
@@ -643,7 +679,7 @@ def get_triangular_mesh(x_pos, y_pos):
     return tri_verts, tri_faces
 
 
-def mattes_mi(img1, img2, nbins=50,  mask=None):
+def mattes_mi(img1, img2, nbins=50, mask=None):
     """Measure Mattes mutual information between 2 images.
 
     Parameters
@@ -686,7 +722,7 @@ def mattes_mi(img1, img2, nbins=50,  mask=None):
 
     mmi = reg.MetricEvaluate(sitk.GetImageFromArray(img1), sitk.GetImageFromArray(img2))
 
-    return -1*mmi
+    return -1 * mmi
 
 
 def calc_rotated_shape(w, h, degree):
@@ -695,7 +731,6 @@ def calc_rotated_shape(w, h, degree):
     rad = np.deg2rad(degree)
     new_w = np.abs(w * np.cos(rad)) + np.abs(h * np.sin(rad))
     new_h = np.abs(w * np.sin(rad)) + np.abs(h * np.cos(rad))
-
 
     return new_w, new_h
 
@@ -706,7 +741,7 @@ def rotate(
     resize=True,
     center=None,
     order=None,
-    mode='constant',
+    mode="constant",
     cval=0,
     clip=True,
     preserve_range=True,
@@ -832,7 +867,6 @@ def rotate(
     return warped, tform
 
 
-
 def order_points(pts_xy):
     """
     Order points in clockwise order (TL, TR, BR, BL)
@@ -884,7 +918,7 @@ def get_resize_M(in_shape_rc, out_shape_rc):
 
     in_corners = get_corners_of_image(in_shape_rc)
     out_corners = get_corners_of_image(out_shape_rc)
-    sy, sx = out_corners[2]/in_corners[2]
+    sy, sx = out_corners[2] / in_corners[2]
 
     resize_M = np.identity(3)
     resize_M[0, 0] = sx
@@ -928,16 +962,16 @@ def _numpy2vips_pre_22(a):
 
     """
     dtype_to_format = {
-    'uint8': 'uchar',
-    'int8': 'char',
-    'uint16': 'ushort',
-    'int16': 'short',
-    'uint32': 'uint',
-    'int32': 'int',
-    'float32': 'float',
-    'float64': 'double',
-    'complex64': 'complex',
-    'complex128': 'dpcomplex',
+        "uint8": "uchar",
+        "int8": "char",
+        "uint16": "ushort",
+        "int16": "short",
+        "uint32": "uint",
+        "int32": "int",
+        "float32": "float",
+        "float64": "double",
+        "complex64": "complex",
+        "complex128": "dpcomplex",
     }
 
     if a.ndim > 2:
@@ -947,8 +981,9 @@ def _numpy2vips_pre_22(a):
         bands = 1
 
     linear = a.reshape(width * height * bands)
-    vi = pyvips.Image.new_from_memory(linear.data, width, height, bands,
-                                      dtype_to_format[str(a.dtype)])
+    vi = pyvips.Image.new_from_memory(
+        linear.data, width, height, bands, dtype_to_format[str(a.dtype)]
+    )
     return vi
 
 
@@ -958,21 +993,23 @@ def _vips2numpy_pre_22(vi):
 
     """
     format_to_dtype = {
-        'uchar': np.uint8,
-        'char': np.int8,
-        'ushort': np.uint16,
-        'short': np.int16,
-        'uint': np.uint32,
-        'int': np.int32,
-        'float': np.float32,
-        'double': np.float64,
-        'complex': np.complex64,
-        'dpcomplex': np.complex128,
+        "uchar": np.uint8,
+        "char": np.int8,
+        "ushort": np.uint16,
+        "short": np.int16,
+        "uint": np.uint32,
+        "int": np.int32,
+        "float": np.float32,
+        "double": np.float64,
+        "complex": np.complex64,
+        "dpcomplex": np.complex128,
     }
 
-    img = np.ndarray(buffer=vi.write_to_memory(),
-                      dtype=format_to_dtype[vi.format],
-                      shape=[vi.height, vi.width, vi.bands])
+    img = np.ndarray(
+        buffer=vi.write_to_memory(),
+        dtype=format_to_dtype[vi.format],
+        shape=[vi.height, vi.width, vi.bands],
+    )
     if vi.bands == 1:
         img = img[..., 0]
 
@@ -1000,6 +1037,7 @@ def numpy2vips(a):
 
     return vi
 
+
 def vips2numpy(vi):
     if is_pyvips_22():
         a = _vips2numpy_22(vi)
@@ -1011,17 +1049,24 @@ def vips2numpy(vi):
 
 def pad_img(img, padded_shape, interp_method="bicubic"):
     padding_T = get_padding_matrix(get_shape(img)[0:2], padded_shape)
-    padded_img = warp_img(img, padding_T, out_shape_rc=padded_shape, interp_method=interp_method)
+    padded_img = warp_img(
+        img, padding_T, out_shape_rc=padded_shape, interp_method=interp_method
+    )
 
     return padded_img, padding_T
 
 
-def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
-             transformation_src_shape_rc=None,
-             transformation_dst_shape_rc=None,
-             bbox_xywh=None,
-             bg_color=None,
-             interp_method="bicubic"):
+def warp_img(
+    img,
+    M=None,
+    bk_dxdy=None,
+    out_shape_rc=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    bbox_xywh=None,
+    bg_color=None,
+    interp_method="bicubic",
+):
     """Warp an image using rigid and/or non-rigid transformations
 
     Warp an image using the trasformations defined by `M` and the optional
@@ -1092,9 +1137,15 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
         elif out_shape_rc is not None:
             transformation_dst_shape_rc = out_shape_rc
         else:
-            transformation_src_corners_rc = get_corners_of_image(transformation_src_shape_rc)
-            warped_transformation_src_corners_xy = warp_xy(transformation_src_corners_rc[:, ::-1], M)
-            transformation_dst_shape_rc = np.ceil(np.max(warped_transformation_src_corners_xy[:, ::-1], axis=0)).astype(int)
+            transformation_src_corners_rc = get_corners_of_image(
+                transformation_src_shape_rc
+            )
+            warped_transformation_src_corners_xy = warp_xy(
+                transformation_src_corners_rc[:, ::-1], M
+            )
+            transformation_dst_shape_rc = np.ceil(
+                np.max(warped_transformation_src_corners_xy[:, ::-1], axis=0)
+            ).astype(int)
 
     # Determine shape of scaled output
     if out_shape_rc is None:
@@ -1105,11 +1156,15 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
     out_shape_rc = np.array(out_shape_rc)
     transformation_dst_shape_rc = np.array(transformation_dst_shape_rc)
 
-    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = get_warp_scaling_factors(
-                                                                     transformation_src_shape_rc=transformation_src_shape_rc,
-                                                                     transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                                                     src_shape_rc=src_shape_rc, dst_shape_rc=out_shape_rc,
-                                                                     bk_dxdy=bk_dxdy)
+    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = (
+        get_warp_scaling_factors(
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=out_shape_rc,
+            bk_dxdy=bk_dxdy,
+        )
+    )
     if bbox_xywh is not None:
         do_crop = True
         # Taking ceiling can prevent shifting down & right by 1 pixel when warping images much larger than the one used to find M
@@ -1146,11 +1201,14 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
     if do_rigid:
         if not np.all(src_sxy == 1):
             img_corners_xy = get_corners_of_image(src_shape_rc)[:, ::-1]
-            warped_corners = warp_xy(img_corners_xy, M=M,
-                                     transformation_src_shape_rc=transformation_src_shape_rc,
-                                     transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                     src_shape_rc=src_shape_rc,
-                                     dst_shape_rc=out_shape_rc)
+            warped_corners = warp_xy(
+                img_corners_xy,
+                M=M,
+                transformation_src_shape_rc=transformation_src_shape_rc,
+                transformation_dst_shape_rc=transformation_dst_shape_rc,
+                src_shape_rc=src_shape_rc,
+                dst_shape_rc=out_shape_rc,
+            )
             M_tform = transform.ProjectiveTransform()
             M_tform.estimate(warped_corners, img_corners_xy)
             warp_M = M_tform.params
@@ -1162,15 +1220,16 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
         warp_M = np.linalg.inv(warp_M)
         vips_M = warp_M[:2, :2].reshape(-1).tolist()
 
-        affine_warped = img.affine(vips_M,
+        affine_warped = img.affine(
+            vips_M,
             oarea=[0, 0, out_shape_rc[1], out_shape_rc[0]],
             interpolate=interpolator,
             idx=-tx,
             idy=-ty,
             premultiplied=True,
             background=bg_color,
-            extend=bg_extender
-            )
+            extend=bg_extender,
+        )
 
     else:
         affine_warped = img
@@ -1194,22 +1253,25 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
         else:
             S = [1.0, 0.0, 0.0, 1.0]
 
-
-        warp_dxdy = vips_dxdy.affine(S,
-                        oarea=[0, 0, out_shape_rc[1], out_shape_rc[0]],
-                        interpolate=interpolator,
-                        premultiplied=True)
+        warp_dxdy = vips_dxdy.affine(
+            S,
+            oarea=[0, 0, out_shape_rc[1], out_shape_rc[0]],
+            interpolate=interpolator,
+            premultiplied=True,
+        )
 
         index = pyvips.Image.xyz(affine_warped.width, affine_warped.height)
         warp_index = (index[0] + warp_dxdy[0]).bandjoin(index[1] + warp_dxdy[1])
 
         try:
-            #Option to set backround color in mapim added in libvips 8.13
-            warped = affine_warped.mapim(warp_index,
+            # Option to set backround color in mapim added in libvips 8.13
+            warped = affine_warped.mapim(
+                warp_index,
                 premultiplied=True,
                 background=bg_color,
                 extend=bg_extender,
-                interpolate=interpolator)
+                interpolate=interpolator,
+            )
 
         except pyvips.error.Error:
             warped = affine_warped.mapim(warp_index, interpolate=interpolator)
@@ -1228,7 +1290,17 @@ def warp_img(img, M=None, bk_dxdy=None, out_shape_rc=None,
     return warped
 
 
-def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None, src_shape_rc=None, bk_dxdy=None, bg_color=None, interp_method="bicubic"):
+def warp_img_inv(
+    img,
+    M=None,
+    fwd_dxdy=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    bk_dxdy=None,
+    bg_color=None,
+    interp_method="bicubic",
+):
     """Unwarp an image using rigid and/or non-rigid transformations
 
     Unwarp an image using the trasformations defined by `M` and the optional
@@ -1289,10 +1361,16 @@ def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, t
     if transformation_dst_shape_rc is None:
         transformation_dst_shape_rc = warped_src_shape_rc
 
-    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = get_warp_scaling_factors(transformation_src_shape_rc=transformation_src_shape_rc,
-                                                                     transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                                                     src_shape_rc=src_shape_rc, dst_shape_rc=warped_src_shape_rc,
-                                                                     bk_dxdy=bk_dxdy, fwd_dxdy=fwd_dxdy)
+    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = (
+        get_warp_scaling_factors(
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=warped_src_shape_rc,
+            bk_dxdy=bk_dxdy,
+            fwd_dxdy=fwd_dxdy,
+        )
+    )
 
     # Do transformations
     if bg_color is None:
@@ -1325,21 +1403,25 @@ def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, t
         else:
             S = [1.0, 0.0, 0.0, 1.0]
 
-        warp_dxdy = vips_dxdy.affine(S,
-                        oarea=[0, 0, img.width, img.height],
-                        interpolate=interpolator,
-                        premultiplied=True)
+        warp_dxdy = vips_dxdy.affine(
+            S,
+            oarea=[0, 0, img.width, img.height],
+            interpolate=interpolator,
+            premultiplied=True,
+        )
 
         index = pyvips.Image.xyz(img.width, img.height)
         warp_index = (index[0] + warp_dxdy[0]).bandjoin(index[1] + warp_dxdy[1])
 
         try:
             # Option to set backround color in mapim added in libvips 8.13
-            nr_warped = img.mapim(warp_index,
+            nr_warped = img.mapim(
+                warp_index,
                 premultiplied=True,
                 background=bg_color,
                 extend=bg_extender,
-                interpolate=interpolator)
+                interpolate=interpolator,
+            )
 
         except pyvips.error.Error:
             nr_warped = img.mapim(warp_index, interpolate=interpolator)
@@ -1352,11 +1434,14 @@ def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, t
     if do_rigid:
 
         img_corners_xy = get_corners_of_image(src_shape_rc)[:, ::-1]
-        warped_corners = warp_xy(img_corners_xy, M=M,
-                                    transformation_src_shape_rc=transformation_src_shape_rc,
-                                    transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                    src_shape_rc=src_shape_rc,
-                                    dst_shape_rc=warped_src_shape_rc)
+        warped_corners = warp_xy(
+            img_corners_xy,
+            M=M,
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=warped_src_shape_rc,
+        )
         M_tform = transform.ProjectiveTransform()
         M_tform.estimate(img_corners_xy, warped_corners)
         warp_M = M_tform.params
@@ -1364,19 +1449,19 @@ def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, t
         tx, ty = warp_M[:2, 2]
         warp_M = np.linalg.inv(warp_M)
         vips_M = warp_M[:2, :2].reshape(-1).tolist()
-        warped = nr_warped.affine(vips_M,
-                    oarea=[0, 0, src_shape_rc[1], src_shape_rc[0]],
-                    interpolate=interpolator,
-                    idx=-tx,
-                    idy=-ty,
-                    premultiplied=True,
-                    background=bg_color,
-                    extend=bg_extender
-                    )
+        warped = nr_warped.affine(
+            vips_M,
+            oarea=[0, 0, src_shape_rc[1], src_shape_rc[0]],
+            interpolate=interpolator,
+            idx=-tx,
+            idy=-ty,
+            premultiplied=True,
+            background=bg_color,
+            extend=bg_extender,
+        )
 
     else:
         warped = nr_warped
-
 
     if is_array:
         warped = vips2numpy(warped)
@@ -1384,12 +1469,22 @@ def warp_img_inv(img, M=None, fwd_dxdy=None, transformation_src_shape_rc=None, t
     return warped
 
 
-def warp_img_from_to(img, from_M=None, from_transformation_src_shape_rc=None,
-                   from_transformation_dst_shape_rc=None,
-                   from_dst_shape_rc=None, from_bk_dxdy=None,
-                   to_M=None, to_transformation_src_shape_rc=None,
-                   to_transformation_dst_shape_rc=None, to_src_shape_rc=None,
-                   to_bk_dxdy=None, to_fwd_dxdy=None, bg_color=None, interp_method="bicubic"):
+def warp_img_from_to(
+    img,
+    from_M=None,
+    from_transformation_src_shape_rc=None,
+    from_transformation_dst_shape_rc=None,
+    from_dst_shape_rc=None,
+    from_bk_dxdy=None,
+    to_M=None,
+    to_transformation_src_shape_rc=None,
+    to_transformation_dst_shape_rc=None,
+    to_src_shape_rc=None,
+    to_bk_dxdy=None,
+    to_fwd_dxdy=None,
+    bg_color=None,
+    interp_method="bicubic",
+):
     """Warp image onto another
 
     Warps `img` to registered coordinates using the "from" parameters, and then uses
@@ -1461,27 +1556,28 @@ def warp_img_from_to(img, from_M=None, from_transformation_src_shape_rc=None,
 
     """
 
+    in_reg_space = warp_img(
+        img,
+        M=from_M,
+        bk_dxdy=from_bk_dxdy,
+        out_shape_rc=from_dst_shape_rc,
+        transformation_src_shape_rc=from_transformation_src_shape_rc,
+        transformation_dst_shape_rc=from_transformation_dst_shape_rc,
+        bg_color=bg_color,
+        interp_method=interp_method,
+    )
 
-    in_reg_space = warp_img(img,
-                            M=from_M,
-                            bk_dxdy=from_bk_dxdy,
-                            out_shape_rc=from_dst_shape_rc,
-                            transformation_src_shape_rc=from_transformation_src_shape_rc,
-                            transformation_dst_shape_rc=from_transformation_dst_shape_rc,
-                            bg_color=bg_color,
-                            interp_method=interp_method
-                            )
-
-    in_target_space = warp_img_inv(img=in_reg_space,
-                                   M=to_M,
-                                   fwd_dxdy=to_fwd_dxdy,
-                                   transformation_src_shape_rc=to_transformation_src_shape_rc,
-                                   transformation_dst_shape_rc=to_transformation_dst_shape_rc,
-                                   src_shape_rc=to_src_shape_rc,
-                                   bk_dxdy=to_bk_dxdy,
-                                   bg_color=bg_color,
-                                   interp_method=interp_method
-                                   )
+    in_target_space = warp_img_inv(
+        img=in_reg_space,
+        M=to_M,
+        fwd_dxdy=to_fwd_dxdy,
+        transformation_src_shape_rc=to_transformation_src_shape_rc,
+        transformation_dst_shape_rc=to_transformation_dst_shape_rc,
+        src_shape_rc=to_src_shape_rc,
+        bk_dxdy=to_bk_dxdy,
+        bg_color=bg_color,
+        interp_method=interp_method,
+    )
 
     return in_target_space
 
@@ -1500,9 +1596,15 @@ def crop_img(img, xywh):
     return cropped
 
 
-def get_warp_map(M=None, dxdy=None, transformation_dst_shape_rc=None,
-                 dst_shape_rc=None, transformation_src_shape_rc=None,
-                 src_shape_rc=None, return_xy=False):
+def get_warp_map(
+    M=None,
+    dxdy=None,
+    transformation_dst_shape_rc=None,
+    dst_shape_rc=None,
+    transformation_src_shape_rc=None,
+    src_shape_rc=None,
+    return_xy=False,
+):
     """Get map to warp an image
     Get a coordinate map that will perform the warp defined by M and the optional displacement field, dxdy
     Map can be scaled so that it can be applied to an image with shape unwarped_out_shape_rc
@@ -1541,7 +1643,6 @@ def get_warp_map(M=None, dxdy=None, transformation_dst_shape_rc=None,
 
     """
 
-
     if M is None and dxdy is None:
         warnings.warn("Please provide `M` and/or `dxdy`")
         return None
@@ -1559,7 +1660,6 @@ def get_warp_map(M=None, dxdy=None, transformation_dst_shape_rc=None,
     if src_shape_rc is None:
         src_shape_rc = transformation_src_shape_rc
 
-
     if np.all(transformation_dst_shape_rc == dst_shape_rc):
         grid_r, grid_c = np.indices(transformation_dst_shape_rc)
 
@@ -1568,10 +1668,12 @@ def get_warp_map(M=None, dxdy=None, transformation_dst_shape_rc=None,
         scaled_x = np.linspace(0, dst_shape_rc[1], num=transformation_dst_shape_rc[1])
         grid_y, grid_x = np.meshgrid(scaled_y, scaled_x, indexing="ij")
         scaled_xy = np.dstack([grid_x.reshape(-1), grid_y.reshape(-1)])[0]
-        sy, sx = np.array(dst_shape_rc)/np.array(transformation_dst_shape_rc)
+        sy, sx = np.array(dst_shape_rc) / np.array(transformation_dst_shape_rc)
         S = transform.SimilarityTransform(scale=(sx, sy))
         src_xy_pos = S.inverse(scaled_xy)
-        grid_r, grid_c = src_xy_pos[:, 1].reshape(transformation_dst_shape_rc), src_xy_pos[:, 0].reshape(transformation_dst_shape_rc)
+        grid_r, grid_c = src_xy_pos[:, 1].reshape(
+            transformation_dst_shape_rc
+        ), src_xy_pos[:, 0].reshape(transformation_dst_shape_rc)
 
     if dxdy is None:
         r_in_src = grid_r
@@ -1582,17 +1684,29 @@ def get_warp_map(M=None, dxdy=None, transformation_dst_shape_rc=None,
 
     if M is not None:
         tformer = transform.ProjectiveTransform(matrix=M)
-        xy_pos_in_src = tformer(np.dstack([c_in_src.reshape(-1), r_in_src.reshape(-1)])[0])
-        xy_pos_in_src = [xy_pos_in_src[:, 0].reshape(transformation_dst_shape_rc), xy_pos_in_src[:, 1].reshape(transformation_dst_shape_rc)]
+        xy_pos_in_src = tformer(
+            np.dstack([c_in_src.reshape(-1), r_in_src.reshape(-1)])[0]
+        )
+        xy_pos_in_src = [
+            xy_pos_in_src[:, 0].reshape(transformation_dst_shape_rc),
+            xy_pos_in_src[:, 1].reshape(transformation_dst_shape_rc),
+        ]
 
     else:
         xy_pos_in_src = [c_in_src, r_in_src]
 
     if np.any(transformation_src_shape_rc != src_shape_rc):
-        in_scale_y, in_scale_x = np.array(src_shape_rc)/np.array(transformation_src_shape_rc)
+        in_scale_y, in_scale_x = np.array(src_shape_rc) / np.array(
+            transformation_src_shape_rc
+        )
         in_S = transform.SimilarityTransform(scale=(in_scale_x, in_scale_y))
-        xy_pos_in_src = in_S(np.dstack([xy_pos_in_src[0].reshape(-1), xy_pos_in_src[1].reshape(-1)])[0])
-        xy_pos_in_src = [xy_pos_in_src[:, 0].reshape(transformation_dst_shape_rc), xy_pos_in_src[:, 1].reshape(transformation_dst_shape_rc)]
+        xy_pos_in_src = in_S(
+            np.dstack([xy_pos_in_src[0].reshape(-1), xy_pos_in_src[1].reshape(-1)])[0]
+        )
+        xy_pos_in_src = [
+            xy_pos_in_src[:, 0].reshape(transformation_dst_shape_rc),
+            xy_pos_in_src[:, 1].reshape(transformation_dst_shape_rc),
+        ]
 
     if return_xy:
         c1, c2 = 0, 1
@@ -1608,11 +1722,11 @@ def get_padding_matrix(img_shape_rc, out_shape_rc):
     img_h, img_w = img_shape_rc
     out_h, out_w = out_shape_rc
 
-    d_h = (out_h - img_h)
-    d_w = (out_w - img_w)
+    d_h = out_h - img_h
+    d_w = out_w - img_w
 
-    h_pad = d_h/2
-    w_pad = d_w/2
+    h_pad = d_h / 2
+    w_pad = d_w / 2
     T = np.identity(3).astype(np.float64)
     T[0, 2] = -w_pad
     T[1, 2] = -h_pad
@@ -1663,7 +1777,10 @@ def get_img_area(img_shape_rc, M=None):
         prev_img_corners = warp_xy(prev_img_corners, M)
 
     prev_img_corners = order_points(prev_img_corners)
-    prev_area = 0.5*np.abs(np.dot(prev_img_corners[:, 0],np.roll(prev_img_corners[:, 1],1))-np.dot(prev_img_corners[:, 1],np.roll(prev_img_corners[:, 0],1)))
+    prev_area = 0.5 * np.abs(
+        np.dot(prev_img_corners[:, 0], np.roll(prev_img_corners[:, 1], 1))
+        - np.dot(prev_img_corners[:, 1], np.roll(prev_img_corners[:, 0], 1))
+    )
     return prev_area
 
 
@@ -1677,7 +1794,7 @@ def get_overlap_mask(img1, img2):
 
 
 def center_and_get_translation_matrix(img_shape_rc, x, y, w, h):
-    '''
+    """
     x, y, w, h attributes or
     :param img_shape_rc:
     :param x:
@@ -1685,12 +1802,11 @@ def center_and_get_translation_matrix(img_shape_rc, x, y, w, h):
     :param w:
     :param h:
     :return:
-    '''
+    """
 
     # Center smaller image inside larger image #
     img_center_w = int(img_shape_rc[1] / 2)
     img_center_h = int(img_shape_rc[0] / 2)
-
 
     out_center_w = int(w / 2) + x
     out_center_h = int(h / 2) + y
@@ -1779,7 +1895,7 @@ def get_rotate_around_center_M(img_shape, rotation_rad):
     rows, cols = img_shape[0:2]
 
     # rotation around center
-    center = np.array((cols, rows)) / 2. - 0.5
+    center = np.array((cols, rows)) / 2.0 - 0.5
     tform1 = transform.SimilarityTransform(translation=center)
     tform2 = transform.SimilarityTransform(rotation=rotation_rad)
     tform3 = transform.SimilarityTransform(translation=-center)
@@ -1805,7 +1921,7 @@ def calc_d(pt1, pt2):
         distnace between correspoing points in pt1 and pt2
     """
 
-    d = np.sqrt(np.sum((pt1 - pt2)**2, axis=1))
+    d = np.sqrt(np.sum((pt1 - pt2) ** 2, axis=1))
     return d
 
 
@@ -1846,17 +1962,16 @@ def get_mesh(shape, grid_spacing, bbox_rc_wh=None, inclusive=False):
     c_grid_pts = np.arange(min_c, max_c, grid_spacing)
 
     if inclusive:
-        if max(r_grid_pts) != shape[0]-1:
-            r_grid_pts = np.hstack([r_grid_pts, shape[0]-1])
+        if max(r_grid_pts) != shape[0] - 1:
+            r_grid_pts = np.hstack([r_grid_pts, shape[0] - 1])
 
-        if max(c_grid_pts) != shape[1]-1:
-            c_grid_pts = np.hstack([c_grid_pts, shape[1]-1])
+        if max(c_grid_pts) != shape[1] - 1:
+            c_grid_pts = np.hstack([c_grid_pts, shape[1] - 1])
 
     return np.meshgrid(r_grid_pts, c_grid_pts, indexing="ij")
 
 
-def smooth_dxdy(dxdy, grid_spacing_ratio=0.015, sigma_ratio=0.005,
-                method="gauss"):
+def smooth_dxdy(dxdy, grid_spacing_ratio=0.015, sigma_ratio=0.005, method="gauss"):
     """Smooth displacement fields
 
     Use cubic interpolation to smooth displacement field
@@ -1894,8 +2009,8 @@ def smooth_dxdy(dxdy, grid_spacing_ratio=0.015, sigma_ratio=0.005,
 
     dx, dy = dxdy
     if method.lower().startswith("c"):
-        grid_spacing_x = dx.shape[1]*grid_spacing_ratio
-        grid_spacing_y = dx.shape[0]*grid_spacing_ratio
+        grid_spacing_x = dx.shape[1] * grid_spacing_ratio
+        grid_spacing_y = dx.shape[0] * grid_spacing_ratio
         grid_spacing = int(np.mean([grid_spacing_x, grid_spacing_y]))
 
         subgrid_r, subgrid_c = get_mesh(dx.shape, grid_spacing, inclusive=True)
@@ -1909,14 +2024,22 @@ def smooth_dxdy(dxdy, grid_spacing_ratio=0.015, sigma_ratio=0.005,
         subgrid_r_flat = subgrid_r.reshape(-1)
         subgrid_c_flat = subgrid_c.reshape(-1)
 
-        smooth_dx_interp = SmoothBivariateSpline(subgrid_r_flat, subgrid_c_flat, sub_dx.reshape(-1))
-        smooth_dx = smooth_dx_interp(grid_xy[:, 1], grid_xy[:, 0], grid=False).reshape(dx.shape)
+        smooth_dx_interp = SmoothBivariateSpline(
+            subgrid_r_flat, subgrid_c_flat, sub_dx.reshape(-1)
+        )
+        smooth_dx = smooth_dx_interp(grid_xy[:, 1], grid_xy[:, 0], grid=False).reshape(
+            dx.shape
+        )
 
-        smooth_dy_interp = SmoothBivariateSpline(subgrid_r_flat, subgrid_c_flat, sub_dy.reshape(-1))
-        smooth_dy = smooth_dx_interp(grid_xy[:, 1], grid_xy[:, 0], grid=False).reshape(dy.shape)
+        smooth_dy_interp = SmoothBivariateSpline(
+            subgrid_r_flat, subgrid_c_flat, sub_dy.reshape(-1)
+        )
+        smooth_dy = smooth_dx_interp(grid_xy[:, 1], grid_xy[:, 0], grid=False).reshape(
+            dy.shape
+        )
 
     elif method.lower().startswith("g"):
-        sigma = sigma_ratio*np.max(dx.shape)
+        sigma = sigma_ratio * np.max(dx.shape)
         smooth_dx = filters.gaussian(dx, sigma=sigma)
         smooth_dy = filters.gaussian(dy, sigma=sigma)
 
@@ -1928,8 +2051,10 @@ def get_inverse_field(backwards_xy_deltas, n_inter=10):
     Invert transform
     """
 
-    sitk_bk_dxdy = sitk.GetImageFromArray(np.dstack(backwards_xy_deltas),  isVector=True)
-    sitk_fw_dxdy = sitk.IterativeInverseDisplacementField(sitk_bk_dxdy, numberOfIterations=n_inter)
+    sitk_bk_dxdy = sitk.GetImageFromArray(np.dstack(backwards_xy_deltas), isVector=True)
+    sitk_fw_dxdy = sitk.IterativeInverseDisplacementField(
+        sitk_bk_dxdy, numberOfIterations=n_inter
+    )
     fwd_dxdy = sitk.GetArrayFromImage(sitk_fw_dxdy)
     fwd_dxdy = [fwd_dxdy[..., 0], fwd_dxdy[..., 1]]
 
@@ -1937,7 +2062,7 @@ def get_inverse_field(backwards_xy_deltas, n_inter=10):
 
 
 def warp_xy_rigid(xy, inv_matrix):
-    """ Warp points
+    """Warp points
 
     Warp xy given an inverse transformation matrix found using one of scikit-image's transform objects
     Inverse matrix should have been found using tform(dst, src)
@@ -1950,7 +2075,7 @@ def warp_xy_rigid(xy, inv_matrix):
     src_pts = np.vstack((x, y, np.ones_like(x)))
     try:
         dst_pts = src_pts.T @ np.linalg.inv(inv_matrix).T
-    except np.linalg.LinAlgError :
+    except np.linalg.LinAlgError:
         print("Singular matrix")
         dst_pts = src_pts.T @ np.linalg.pinv(inv_matrix).T
 
@@ -1990,7 +2115,14 @@ def warp_xy_non_rigid(xy, dxdy, displacement_shape_rc=None):
     return nr_xy
 
 
-def get_warp_scaling_factors(transformation_src_shape_rc=None, transformation_dst_shape_rc=None, src_shape_rc=None, dst_shape_rc=None, bk_dxdy=None, fwd_dxdy=None):
+def get_warp_scaling_factors(
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    bk_dxdy=None,
+    fwd_dxdy=None,
+):
     """Get scaling factors needed to warp points
 
     If a returned value is None, it means there is no need to scale the image
@@ -2040,7 +2172,7 @@ def get_warp_scaling_factors(transformation_src_shape_rc=None, transformation_ds
         if np.all(transformation_src_shape_rc == src_shape_rc):
             src_sxy = None
         else:
-            src_sxy = (src_shape_rc/transformation_src_shape_rc)[::-1]
+            src_sxy = (src_shape_rc / transformation_src_shape_rc)[::-1]
     else:
         src_sxy = None
 
@@ -2067,7 +2199,7 @@ def get_warp_scaling_factors(transformation_src_shape_rc=None, transformation_ds
                 displacement_shape_rc = np.array([fwd_dxdy.height, fwd_dxdy.width])
 
     if transformation_dst_shape_rc is None and do_non_rigid:
-            transformation_dst_shape_rc = displacement_shape_rc
+        transformation_dst_shape_rc = displacement_shape_rc
 
     if dst_shape_rc is None and transformation_dst_shape_rc is not None:
         dst_shape_rc = transformation_dst_shape_rc
@@ -2076,11 +2208,13 @@ def get_warp_scaling_factors(transformation_src_shape_rc=None, transformation_ds
     if do_non_rigid:
         if not np.all(transformation_dst_shape_rc == displacement_shape_rc):
             # non-rigid found on scaled image
-            displacement_sxy = (displacement_shape_rc/transformation_dst_shape_rc)[::-1]
-            dst_sxy = (dst_shape_rc/displacement_shape_rc)[::-1]
+            displacement_sxy = (displacement_shape_rc / transformation_dst_shape_rc)[
+                ::-1
+            ]
+            dst_sxy = (dst_shape_rc / displacement_shape_rc)[::-1]
         else:
             displacement_sxy = None
-            dst_sxy = (dst_shape_rc/transformation_dst_shape_rc)[::-1]
+            dst_sxy = (dst_shape_rc / transformation_dst_shape_rc)[::-1]
 
         if np.all(dst_sxy == 1):
             dst_sxy = None
@@ -2091,21 +2225,28 @@ def get_warp_scaling_factors(transformation_src_shape_rc=None, transformation_ds
         displacement_sxy = None
         if transformation_dst_shape_rc is not None and dst_shape_rc is not None:
             if not np.all(dst_shape_rc == transformation_dst_shape_rc):
-                dst_sxy = (dst_shape_rc/transformation_dst_shape_rc)[::-1]
+                dst_sxy = (dst_shape_rc / transformation_dst_shape_rc)[::-1]
 
     return src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc
 
 
-
-def _warp_pt_vips(xy, M=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, src_sxy=None, dst_sxy=None, displacement_sxy=None, displacement_shape_rc=None, pt_buffer=100):
-    """Warp single point when the displacement fields are pyvips.Image objects
-
-    """
+def _warp_pt_vips(
+    xy,
+    M=None,
+    vips_bk_dxdy=None,
+    vips_fwd_dxdy=None,
+    src_sxy=None,
+    dst_sxy=None,
+    displacement_sxy=None,
+    displacement_shape_rc=None,
+    pt_buffer=100,
+):
+    """Warp single point when the displacement fields are pyvips.Image objects"""
 
     do_non_rigid = vips_bk_dxdy is not None or vips_fwd_dxdy is not None
 
     if src_sxy is not None:
-        in_src_xy = xy/src_sxy
+        in_src_xy = xy / src_sxy
 
     else:
         in_src_xy = xy
@@ -2114,7 +2255,7 @@ def _warp_pt_vips(xy, M=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, src_sxy=Non
         rigid_xy = warp_xy_rigid(in_src_xy, M).astype(float)[0]
         if not do_non_rigid:
             if dst_sxy is not None:
-                return rigid_xy*dst_sxy
+                return rigid_xy * dst_sxy
             else:
                 return rigid_xy
     else:
@@ -2125,10 +2266,14 @@ def _warp_pt_vips(xy, M=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, src_sxy=Non
         # So move points into new displacement field
         rigid_xy *= displacement_sxy
 
-    bbox_xy_tl  = (rigid_xy - pt_buffer//2).astype(int)
-    bbox_xy_br  = np.ceil(rigid_xy + pt_buffer//2).astype(int)
-    bbox_x01 = np.clip(np.array([bbox_xy_tl[0], bbox_xy_br[0]]), 0, displacement_shape_rc[1])
-    bbox_y01 = np.clip(np.array([bbox_xy_tl[1], bbox_xy_br[1]]), 0, displacement_shape_rc[0])
+    bbox_xy_tl = (rigid_xy - pt_buffer // 2).astype(int)
+    bbox_xy_br = np.ceil(rigid_xy + pt_buffer // 2).astype(int)
+    bbox_x01 = np.clip(
+        np.array([bbox_xy_tl[0], bbox_xy_br[0]]), 0, displacement_shape_rc[1]
+    )
+    bbox_y01 = np.clip(
+        np.array([bbox_xy_tl[1], bbox_xy_br[1]]), 0, displacement_shape_rc[0]
+    )
 
     bbox_w = -int(np.subtract(*bbox_x01))
     bbox_h = -int(np.subtract(*bbox_y01))
@@ -2144,9 +2289,15 @@ def _warp_pt_vips(xy, M=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, src_sxy=Non
     elif vips_bk_dxdy is not None and vips_fwd_dxdy is None:
         vips_region_bk_dxdy = vips_bk_dxdy.extract_area(*region_bbox_xywh)
         region_bk_dxdy = vips2numpy(vips_region_bk_dxdy)
-        region_dxdy = np.dstack(get_inverse_field(region_bk_dxdy[..., 0], region_bk_dxdy[..., 1]))
+        region_dxdy = np.dstack(
+            get_inverse_field(region_bk_dxdy[..., 0], region_bk_dxdy[..., 1])
+        )
 
-    nonrigid_xy = warp_xy_non_rigid(xy=rigid_xy_in_tile, dxdy=[region_dxdy[..., 0], region_dxdy[..., 1]], displacement_shape_rc=[bbox_h, bbox_w])
+    nonrigid_xy = warp_xy_non_rigid(
+        xy=rigid_xy_in_tile,
+        dxdy=[region_dxdy[..., 0], region_dxdy[..., 1]],
+        displacement_shape_rc=[bbox_h, bbox_w],
+    )
     nonrigid_xy += region_bbox_xywh[0:2]
 
     if dst_sxy is not None:
@@ -2155,8 +2306,17 @@ def _warp_pt_vips(xy, M=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, src_sxy=Non
     return nonrigid_xy
 
 
-def _warp_xy_vips(xy, M=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None,
-                 src_shape_rc=None, dst_shape_rc=None, vips_bk_dxdy=None, vips_fwd_dxdy=None, pt_buffer=100):
+def _warp_xy_vips(
+    xy,
+    M=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    vips_bk_dxdy=None,
+    vips_fwd_dxdy=None,
+    pt_buffer=100,
+):
     """
     Warp xy points using M and/or bk_dxdy/fwd_dxdy.
     Used when `vips_bk_dxdy` or `vips_fwd_dxdy` is a pyvips.Image
@@ -2205,19 +2365,47 @@ def _warp_xy_vips(xy, M=None, transformation_src_shape_rc=None, transformation_d
         Array of warped xy coordinates for P points
 
     """
-    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = get_warp_scaling_factors(transformation_src_shape_rc=transformation_src_shape_rc,
-                                                                        transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                                                        src_shape_rc=src_shape_rc, dst_shape_rc=dst_shape_rc,
-                                                                        bk_dxdy=vips_bk_dxdy, fwd_dxdy=vips_fwd_dxdy)
+    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = (
+        get_warp_scaling_factors(
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=dst_shape_rc,
+            bk_dxdy=vips_bk_dxdy,
+            fwd_dxdy=vips_fwd_dxdy,
+        )
+    )
 
-
-    warped_xy = np.vstack([_warp_pt_vips(pt, M, vips_bk_dxdy=vips_bk_dxdy, vips_fwd_dxdy=vips_fwd_dxdy, src_sxy=src_sxy, dst_sxy=dst_sxy, displacement_sxy=displacement_sxy, displacement_shape_rc=displacement_shape_rc, pt_buffer=pt_buffer) for pt in xy])
+    warped_xy = np.vstack(
+        [
+            _warp_pt_vips(
+                pt,
+                M,
+                vips_bk_dxdy=vips_bk_dxdy,
+                vips_fwd_dxdy=vips_fwd_dxdy,
+                src_sxy=src_sxy,
+                dst_sxy=dst_sxy,
+                displacement_sxy=displacement_sxy,
+                displacement_shape_rc=displacement_shape_rc,
+                pt_buffer=pt_buffer,
+            )
+            for pt in xy
+        ]
+    )
 
     return warped_xy
 
 
-def _warp_xy_numpy(xy, M=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None,
-                   src_shape_rc=None, dst_shape_rc=None, bk_dxdy=None, fwd_dxdy=None):
+def _warp_xy_numpy(
+    xy,
+    M=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    bk_dxdy=None,
+    fwd_dxdy=None,
+):
     """
     Warp xy points using M and/or bk_dxdy/fwd_dxdy. If bk_dxdy is provided, it will be inverted to  create fwd_dxdy
 
@@ -2267,12 +2455,18 @@ def _warp_xy_numpy(xy, M=None, transformation_src_shape_rc=None, transformation_
     if M is None and not do_non_rigid:
         return xy
 
-    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = get_warp_scaling_factors(transformation_src_shape_rc=transformation_src_shape_rc,
-                                                                     transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                                                     src_shape_rc=src_shape_rc, dst_shape_rc=dst_shape_rc,
-                                                                     bk_dxdy=bk_dxdy, fwd_dxdy=fwd_dxdy)
+    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = (
+        get_warp_scaling_factors(
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=dst_shape_rc,
+            bk_dxdy=bk_dxdy,
+            fwd_dxdy=fwd_dxdy,
+        )
+    )
     if src_sxy is not None:
-        in_src_xy = xy/src_sxy
+        in_src_xy = xy / src_sxy
     else:
         in_src_xy = xy
 
@@ -2280,7 +2474,7 @@ def _warp_xy_numpy(xy, M=None, transformation_src_shape_rc=None, transformation_
         rigid_xy = warp_xy_rigid(in_src_xy, M).astype(float)
         if not do_non_rigid:
             if dst_sxy is not None:
-                return rigid_xy*dst_sxy
+                return rigid_xy * dst_sxy
             else:
                 return rigid_xy
     else:
@@ -2294,16 +2488,27 @@ def _warp_xy_numpy(xy, M=None, transformation_src_shape_rc=None, transformation_
     if bk_dxdy is not None and fwd_dxdy is None:
         fwd_dxdy = get_inverse_field(bk_dxdy)
 
-    nonrigid_xy = warp_xy_non_rigid(rigid_xy, dxdy=fwd_dxdy, displacement_shape_rc=displacement_shape_rc)
+    nonrigid_xy = warp_xy_non_rigid(
+        rigid_xy, dxdy=fwd_dxdy, displacement_shape_rc=displacement_shape_rc
+    )
 
     if dst_sxy is not None:
         nonrigid_xy *= dst_sxy
 
     return nonrigid_xy
 
-def warp_xy(xy, M=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None,
-            src_shape_rc=None, dst_shape_rc=None,
-            bk_dxdy=None, fwd_dxdy=None, pt_buffer=100):
+
+def warp_xy(
+    xy,
+    M=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    bk_dxdy=None,
+    fwd_dxdy=None,
+    pt_buffer=100,
+):
     """
     Warp xy points using M and/or bk_dxdy/fwd_dxdy. If bk_dxdy is provided, it will be inverted to  create fwd_dxdy
 
@@ -2360,19 +2565,41 @@ def warp_xy(xy, M=None, transformation_src_shape_rc=None, transformation_dst_sha
         return xy
 
     if isinstance(bk_dxdy, pyvips.Image) or isinstance(fwd_dxdy, pyvips.Image):
-        warped_xy = _warp_xy_vips(xy, M, transformation_src_shape_rc=transformation_src_shape_rc,
-                                  transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                  src_shape_rc=src_shape_rc, dst_shape_rc=dst_shape_rc,
-                                  vips_bk_dxdy=bk_dxdy, vips_fwd_dxdy=fwd_dxdy, pt_buffer=pt_buffer)
+        warped_xy = _warp_xy_vips(
+            xy,
+            M,
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=dst_shape_rc,
+            vips_bk_dxdy=bk_dxdy,
+            vips_fwd_dxdy=fwd_dxdy,
+            pt_buffer=pt_buffer,
+        )
     else:
-        warped_xy = _warp_xy_numpy(xy, M, transformation_src_shape_rc=transformation_src_shape_rc,
-                                   transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                   src_shape_rc=src_shape_rc, dst_shape_rc=dst_shape_rc,
-                                   bk_dxdy=bk_dxdy, fwd_dxdy=fwd_dxdy)
+        warped_xy = _warp_xy_numpy(
+            xy,
+            M,
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=dst_shape_rc,
+            bk_dxdy=bk_dxdy,
+            fwd_dxdy=fwd_dxdy,
+        )
     return warped_xy
 
 
-def warp_xy_inv(xy, M=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None, src_shape_rc=None, dst_shape_rc=None, bk_dxdy=None, fwd_dxdy=None):
+def warp_xy_inv(
+    xy,
+    M=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    bk_dxdy=None,
+    fwd_dxdy=None,
+):
     """Warp points from registered coordinates to original coordinates
 
     Parameters
@@ -2415,13 +2642,19 @@ def warp_xy_inv(xy, M=None, transformation_src_shape_rc=None, transformation_dst
     if M is None and not do_non_rigid:
         return xy
 
-    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = get_warp_scaling_factors(transformation_src_shape_rc=transformation_src_shape_rc,
-                                                                     transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                                                     src_shape_rc=src_shape_rc, dst_shape_rc=dst_shape_rc,
-                                                                     bk_dxdy=bk_dxdy, fwd_dxdy=fwd_dxdy)
+    src_sxy, dst_sxy, displacement_sxy, displacement_shape_rc = (
+        get_warp_scaling_factors(
+            transformation_src_shape_rc=transformation_src_shape_rc,
+            transformation_dst_shape_rc=transformation_dst_shape_rc,
+            src_shape_rc=src_shape_rc,
+            dst_shape_rc=dst_shape_rc,
+            bk_dxdy=bk_dxdy,
+            fwd_dxdy=fwd_dxdy,
+        )
+    )
 
     if dst_sxy is not None:
-        xy_in_reg_img = xy/dst_sxy
+        xy_in_reg_img = xy / dst_sxy
     else:
         xy_in_reg_img = xy
 
@@ -2437,7 +2670,7 @@ def warp_xy_inv(xy, M=None, transformation_src_shape_rc=None, transformation_dst
         xy_in_rigid = xy_in_reg_img
 
     if M is not None:
-         xy_inv = warp_xy(xy_in_rigid, M=np.linalg.inv(M))
+        xy_inv = warp_xy(xy_in_rigid, M=np.linalg.inv(M))
     else:
         xy_inv = xy_in_rigid
 
@@ -2447,12 +2680,23 @@ def warp_xy_inv(xy, M=None, transformation_src_shape_rc=None, transformation_dst
     return xy_inv
 
 
-def warp_xy_from_to(xy, from_M=None, from_transformation_src_shape_rc=None,
-                   from_transformation_dst_shape_rc=None, from_src_shape_rc=None,
-                   from_dst_shape_rc=None,from_bk_dxdy=None, from_fwd_dxdy=None,
-                   to_M=None, to_transformation_src_shape_rc=None,
-                   to_transformation_dst_shape_rc=None, to_src_shape_rc=None,
-                   to_dst_shape_rc=None, to_bk_dxdy=None, to_fwd_dxdy=None):
+def warp_xy_from_to(
+    xy,
+    from_M=None,
+    from_transformation_src_shape_rc=None,
+    from_transformation_dst_shape_rc=None,
+    from_src_shape_rc=None,
+    from_dst_shape_rc=None,
+    from_bk_dxdy=None,
+    from_fwd_dxdy=None,
+    to_M=None,
+    to_transformation_src_shape_rc=None,
+    to_transformation_dst_shape_rc=None,
+    to_src_shape_rc=None,
+    to_dst_shape_rc=None,
+    to_bk_dxdy=None,
+    to_fwd_dxdy=None,
+):
     """Warp points in one image to their position in another unregistered image
 
     Takes a set of points found in the unwarped "from" image, and warps them to their
@@ -2519,32 +2763,34 @@ def warp_xy_from_to(xy, from_M=None, from_transformation_src_shape_rc=None,
 
     """
 
-    xy_in_reg_space = warp_xy(xy, M=from_M,
-                              transformation_src_shape_rc=from_transformation_src_shape_rc,
-                              transformation_dst_shape_rc=from_transformation_dst_shape_rc,
-                              src_shape_rc=from_src_shape_rc,
-                              dst_shape_rc=from_dst_shape_rc,
-                              bk_dxdy=from_bk_dxdy,
-                              fwd_dxdy=from_fwd_dxdy
-                              )
+    xy_in_reg_space = warp_xy(
+        xy,
+        M=from_M,
+        transformation_src_shape_rc=from_transformation_src_shape_rc,
+        transformation_dst_shape_rc=from_transformation_dst_shape_rc,
+        src_shape_rc=from_src_shape_rc,
+        dst_shape_rc=from_dst_shape_rc,
+        bk_dxdy=from_bk_dxdy,
+        fwd_dxdy=from_fwd_dxdy,
+    )
 
-    xy_in_to_space = warp_xy_inv(xy_in_reg_space, M=to_M,
-                                 transformation_src_shape_rc=to_transformation_src_shape_rc,
-                                 transformation_dst_shape_rc=to_transformation_dst_shape_rc,
-                                 src_shape_rc=to_src_shape_rc,
-                                 dst_shape_rc=to_dst_shape_rc,
-                                 bk_dxdy=to_bk_dxdy,
-                                 fwd_dxdy=to_fwd_dxdy
-                                )
+    xy_in_to_space = warp_xy_inv(
+        xy_in_reg_space,
+        M=to_M,
+        transformation_src_shape_rc=to_transformation_src_shape_rc,
+        transformation_dst_shape_rc=to_transformation_dst_shape_rc,
+        src_shape_rc=to_src_shape_rc,
+        dst_shape_rc=to_dst_shape_rc,
+        bk_dxdy=to_bk_dxdy,
+        fwd_dxdy=to_fwd_dxdy,
+    )
     return xy_in_to_space
 
 
 def clip_xy(xy, shape_rc):
-    """Clip xy coordintaes to be within image
-
-    """
-    clipped_x =  np.clip(xy[:, 0], 0, shape_rc[1])
-    clipped_y =  np.clip(xy[:, 1], 0, shape_rc[0])
+    """Clip xy coordintaes to be within image"""
+    clipped_x = np.clip(xy[:, 0], 0, shape_rc[1])
+    clipped_y = np.clip(xy[:, 1], 0, shape_rc[0])
 
     clipped_xy = np.dstack([clipped_x, clipped_y])[0]
     return clipped_xy
@@ -2560,7 +2806,7 @@ def _warp_shapely(geom, warp_fxn, warp_kwargs, shift_xy=None):
     elif "to_dst_shape_rc" in warp_kwargs:
         dst_shape_rc = warp_kwargs["to_dst_shape_rc"]
     else:
-        dst_shape_rc  = None
+        dst_shape_rc = None
 
     if geom.is_empty:
         return type(geom)([])
@@ -2596,14 +2842,27 @@ def _warp_shapely(geom, warp_fxn, warp_kwargs, shift_xy=None):
             return type(geom)(shell, holes)
 
     elif geom.geom_type.startswith("Multi") or geom.geom_type == "GeometryCollection":
-        return type(geom)([_warp_shapely(part, warp_fxn, warp_kwargs) for part in geom.geoms])
+        return type(geom)(
+            [_warp_shapely(part, warp_fxn, warp_kwargs) for part in geom.geoms]
+        )
     else:
-        raise shapely.errors.GeometryTypeError(f"Type {geom.geom_type!r} not recognized")
+        raise shapely.errors.GeometryTypeError(
+            f"Type {geom.geom_type!r} not recognized"
+        )
 
 
-def warp_shapely_geom(geom, M=None, transformation_src_shape_rc=None, transformation_dst_shape_rc=None,
-            src_shape_rc=None, dst_shape_rc=None,
-            bk_dxdy=None, fwd_dxdy=None, pt_buffer=100, shift_xy=None):
+def warp_shapely_geom(
+    geom,
+    M=None,
+    transformation_src_shape_rc=None,
+    transformation_dst_shape_rc=None,
+    src_shape_rc=None,
+    dst_shape_rc=None,
+    bk_dxdy=None,
+    fwd_dxdy=None,
+    pt_buffer=100,
+    shift_xy=None,
+):
     """
     Warp xy points using M and/or bk_dxdy/fwd_dxdy. If bk_dxdy is provided, it will be inverted to  create fwd_dxdy
 
@@ -2656,14 +2915,16 @@ def warp_shapely_geom(geom, M=None, transformation_src_shape_rc=None, transforma
 
     """
 
-    warp_kwargs = {"M":M,
-                   "transformation_src_shape_rc": transformation_src_shape_rc,
-                   "transformation_dst_shape_rc": transformation_dst_shape_rc,
-                   "src_shape_rc": src_shape_rc,
-                   "dst_shape_rc": dst_shape_rc,
-                   'bk_dxdy': bk_dxdy,
-                   "fwd_dxdy": fwd_dxdy,
-                   "pt_buffer": pt_buffer}
+    warp_kwargs = {
+        "M": M,
+        "transformation_src_shape_rc": transformation_src_shape_rc,
+        "transformation_dst_shape_rc": transformation_dst_shape_rc,
+        "src_shape_rc": src_shape_rc,
+        "dst_shape_rc": dst_shape_rc,
+        "bk_dxdy": bk_dxdy,
+        "fwd_dxdy": fwd_dxdy,
+        "pt_buffer": pt_buffer,
+    }
 
     if shift_xy is not None:
         shift_xy = np.array(shift_xy)
@@ -2673,13 +2934,23 @@ def warp_shapely_geom(geom, M=None, transformation_src_shape_rc=None, transforma
     return warped_geom
 
 
-
-def warp_shapely_geom_from_to(geom, from_M=None, from_transformation_src_shape_rc=None,
-                   from_transformation_dst_shape_rc=None, from_src_shape_rc=None,
-                   from_dst_shape_rc=None,from_bk_dxdy=None, from_fwd_dxdy=None,
-                   to_M=None, to_transformation_src_shape_rc=None,
-                   to_transformation_dst_shape_rc=None, to_src_shape_rc=None,
-                   to_dst_shape_rc=None, to_bk_dxdy=None, to_fwd_dxdy=None):
+def warp_shapely_geom_from_to(
+    geom,
+    from_M=None,
+    from_transformation_src_shape_rc=None,
+    from_transformation_dst_shape_rc=None,
+    from_src_shape_rc=None,
+    from_dst_shape_rc=None,
+    from_bk_dxdy=None,
+    from_fwd_dxdy=None,
+    to_M=None,
+    to_transformation_src_shape_rc=None,
+    to_transformation_dst_shape_rc=None,
+    to_src_shape_rc=None,
+    to_dst_shape_rc=None,
+    to_bk_dxdy=None,
+    to_fwd_dxdy=None,
+):
     """
     Warp xy points using M and/or bk_dxdy/fwd_dxdy. If bk_dxdy is provided, it will be inverted to  create fwd_dxdy
 
@@ -2730,19 +3001,22 @@ def warp_shapely_geom_from_to(geom, from_M=None, from_transformation_src_shape_r
 
     """
 
-    warp_kwargs = {"from_M": from_M,
-                   "from_transformation_src_shape_rc": from_transformation_src_shape_rc,
-                   "from_transformation_dst_shape_rc": from_transformation_dst_shape_rc,
-                   "from_src_shape_rc": from_src_shape_rc,
-                   "from_dst_shape_rc":from_dst_shape_rc,
-                   "from_bk_dxdy":from_bk_dxdy,
-                   "from_fwd_dxdy":from_fwd_dxdy,
-                   "to_M":to_M,
-                   "to_transformation_src_shape_rc": to_transformation_src_shape_rc,
-                   "to_transformation_dst_shape_rc": to_transformation_dst_shape_rc,
-                   "to_src_shape_rc": to_src_shape_rc,
-                   "to_dst_shape_rc": to_dst_shape_rc, "to_bk_dxdy": to_bk_dxdy,
-                   "to_fwd_dxdy":to_fwd_dxdy}
+    warp_kwargs = {
+        "from_M": from_M,
+        "from_transformation_src_shape_rc": from_transformation_src_shape_rc,
+        "from_transformation_dst_shape_rc": from_transformation_dst_shape_rc,
+        "from_src_shape_rc": from_src_shape_rc,
+        "from_dst_shape_rc": from_dst_shape_rc,
+        "from_bk_dxdy": from_bk_dxdy,
+        "from_fwd_dxdy": from_fwd_dxdy,
+        "to_M": to_M,
+        "to_transformation_src_shape_rc": to_transformation_src_shape_rc,
+        "to_transformation_dst_shape_rc": to_transformation_dst_shape_rc,
+        "to_src_shape_rc": to_src_shape_rc,
+        "to_dst_shape_rc": to_dst_shape_rc,
+        "to_bk_dxdy": to_bk_dxdy,
+        "to_fwd_dxdy": to_fwd_dxdy,
+    }
 
     warped_geom = _warp_shapely(geom, warp_xy_from_to, warp_kwargs)
 
@@ -2769,13 +3043,14 @@ def get_inside_mask_idx(xy, mask):
         (Q) array containing the indices of points inside the mask.
 
     """
-    mask_cnt, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
-                                    cv2.CHAIN_APPROX_SIMPLE)
+    mask_cnt, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    inside_mask = np.array([cv2.pointPolygonTest(mask_cnt[0],
-                                                    tuple(xy[i]),
-                                                    False)
-                            for i in range(xy.shape[0])])
+    inside_mask = np.array(
+        [
+            cv2.pointPolygonTest(mask_cnt[0], tuple(xy[i]), False)
+            for i in range(xy.shape[0])
+        ]
+    )
 
     inside_mask_idx = np.where(inside_mask == 1.0)[0]
 
@@ -2801,19 +3076,14 @@ def mask2xy(mask):
         min_y = 0
         max_y = mask.shape[0] - 1
 
-    bbox = np.array([
-        [min_x, min_y],
-        [max_x, min_y],
-        [max_x, max_y],
-        [min_x, max_y]
-    ])
+    bbox = np.array([[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]])
 
     return bbox
 
 
 def bbox2mask(x, y, w, h, shape):
     mask = np.zeros(shape, dtype=np.uint8)
-    mask[y:y+h+1, x:x+w+1] = 255
+    mask[y : y + h + 1, x : x + w + 1] = 255
 
     return mask
 
@@ -2826,7 +3096,7 @@ def xy2bbox(xy):
     w = abs(max_x - min_x)
     h = abs(max_y - min_y)
 
-    return(np.array([min_x, min_y, w, h]))
+    return np.array([min_x, min_y, w, h])
 
 
 def bbox2xy(xywh):
@@ -2878,7 +3148,9 @@ def get_xy_inside_mask(xy, mask):
     """
 
     mask_cnt, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    mask_polys = [shapely.geometry.Polygon(np.squeeze(cnt)) for cnt in mask_cnt if len(cnt) > 2]
+    mask_polys = [
+        shapely.geometry.Polygon(np.squeeze(cnt)) for cnt in mask_cnt if len(cnt) > 2
+    ]
     in_mask = np.zeros(xy.shape[0])
     for i, pt_xy in enumerate(xy):
         pt = shapely.geometry.Point(pt_xy)
@@ -2937,15 +3209,14 @@ def measure_error(src_xy, dst_xy, shape, feature_similarity=None):
         Median Euclidean distance between src_xy and dst_xy, optinally weighted by feature similarity
 
     """
-    d = np.sqrt((src_xy[:, 0]-dst_xy[:, 0])**2 + (src_xy[:, 1]-dst_xy[:, 1])**2)
-    rtre = d/np.sqrt(np.sum(np.power(shape, 2)))
+    d = np.sqrt((src_xy[:, 0] - dst_xy[:, 0]) ** 2 + (src_xy[:, 1] - dst_xy[:, 1]) ** 2)
+    rtre = d / np.sqrt(np.sum(np.power(shape, 2)))
     med_tre = np.median(rtre)
 
     if feature_similarity is not None:
         med_d = weightedstats.weighted_median(d.tolist(), feature_similarity.tolist())
     else:
         med_d = np.median(d)
-
 
     return med_tre, med_d
 
@@ -2988,7 +3259,9 @@ def get_overlapping_poly(mesh_poly_coords):
 
     """
     buffer_v = 0.01
-    poly_l = [Polygon(verts).buffer(-buffer_v) for verts in np.round(mesh_poly_coords, 2)]
+    poly_l = [
+        Polygon(verts).buffer(-buffer_v) for verts in np.round(mesh_poly_coords, 2)
+    ]
     s = STRtree(poly_l)
     n_poly = len(poly_l)
     overlapping_poly_list = []
@@ -3561,4 +3834,3 @@ def get_overlapping_poly(mesh_poly_coords):
 #             plt.axis("equal")
 #             plt.savefig(f"{i}_smooth_mesh.png")
 #             plt.close()
-

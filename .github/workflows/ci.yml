@@ -8,6 +8,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: "Black linting"
+    runs-on: "ubuntu-latest"
+    steps:
+     - uses: actions/checkout@v4
+
+     - name: Install the latest version of uv
+       uses: astral-sh/setup-uv@v5
+       with:
+        python-version: "3.12"
+
+     - name: Install the project
+       run: uv sync
+
+     - name: Run black check
+       run: uv run black --check .
+
   tests:
     name: "Python ${{ matrix.python-version }}"
     runs-on: "ubuntu-latest"

@@ -25,40 +25,42 @@ TYPE_SLIDE_NAME = "slide"
 BG_AUTO_FILL_STR = "auto"
 
 NUMPY_FORMAT_VIPS_DTYPE = {
-    'uint8': 'uchar',
-    'int8': 'char',
-    'uint16': 'ushort',
-    'int16': 'short',
-    'uint32': 'uint',
-    'int32': 'int',
-    'float32': 'float',
-    'float64': 'double',
-    'complex64': 'complex',
-    'complex128': 'dpcomplex',
-    }
+    "uint8": "uchar",
+    "int8": "char",
+    "uint16": "ushort",
+    "int16": "short",
+    "uint32": "uint",
+    "int32": "int",
+    "float32": "float",
+    "float64": "double",
+    "complex64": "complex",
+    "complex128": "dpcomplex",
+}
 
 
 VIPS_FORMAT_NUMPY_DTYPE = {
-    'uchar': np.uint8,
-    'char': np.int8,
-    'ushort': np.uint16,
-    'short': np.int16,
-    'uint': np.uint32,
-    'int': np.int32,
-    'float': np.float32,
-    'double': np.float64,
-    'complex': np.complex64,
-    'dpcomplex': np.complex128,
+    "uchar": np.uint8,
+    "char": np.int8,
+    "ushort": np.uint16,
+    "short": np.int16,
+    "uint": np.uint32,
+    "int": np.int32,
+    "float": np.float32,
+    "double": np.float64,
+    "complex": np.complex64,
+    "dpcomplex": np.complex128,
 }
 
-NUMPY_FORMAT_BF_DTYPE = {'uint8': 'uint8',
-                         'int8': 'int8',
-                         'uint16': 'uint16',
-                         'int16': 'int16',
-                         'uint32': 'uint32',
-                         'int32': 'int32',
-                         'float32': 'float',
-                         'float64': 'double'}
+NUMPY_FORMAT_BF_DTYPE = {
+    "uint8": "uint8",
+    "int8": "int8",
+    "uint16": "uint16",
+    "int16": "int16",
+    "uint32": "uint32",
+    "int32": "int32",
+    "float32": "float",
+    "float64": "double",
+}
 
 CZI_FORMAT_NUMPY_DTYPE = {
     "gray8": "uint8",
@@ -70,9 +72,11 @@ CZI_FORMAT_NUMPY_DTYPE = {
     "invalid": "uint8",
 }
 
-CZI_FORMAT_TO_BF_FORMAT = {k:NUMPY_FORMAT_BF_DTYPE[v] for k,v in CZI_FORMAT_NUMPY_DTYPE.items()}
+CZI_FORMAT_TO_BF_FORMAT = {
+    k: NUMPY_FORMAT_BF_DTYPE[v] for k, v in CZI_FORMAT_NUMPY_DTYPE.items()
+}
 
-BF_FORMAT_NUMPY_DTYPE = {v:k for k, v in NUMPY_FORMAT_BF_DTYPE.items()}
+BF_FORMAT_NUMPY_DTYPE = {v: k for k, v in NUMPY_FORMAT_BF_DTYPE.items()}
 
 
 def vips2numpy(vi):
@@ -81,9 +85,11 @@ def vips2numpy(vi):
 
     """
 
-    img = np.ndarray(buffer=vi.write_to_memory(),
-                     dtype=VIPS_FORMAT_NUMPY_DTYPE[vi.format],
-                     shape=[vi.height, vi.width, vi.bands])
+    img = np.ndarray(
+        buffer=vi.write_to_memory(),
+        dtype=VIPS_FORMAT_NUMPY_DTYPE[vi.format],
+        shape=[vi.height, vi.width, vi.bands],
+    )
     if vi.bands == 1:
         img = img[..., 0]
 
@@ -91,9 +97,7 @@ def vips2numpy(vi):
 
 
 def numpy2vips(a, pyvips_interpretation=None):
-    """
-
-    """
+    """ """
 
     if a.ndim > 2:
         height, width, bands = a.shape
@@ -103,11 +107,12 @@ def numpy2vips(a, pyvips_interpretation=None):
 
     linear = a.reshape(width * height * bands)
     if linear.dtype.byteorder == ">":
-        #vips seems to expect the array to be little endian, but `a` is big endian
+        # vips seems to expect the array to be little endian, but `a` is big endian
         linear.byteswap(inplace=True)
 
-    vi = pyvips.Image.new_from_memory(linear.data, width, height, bands,
-                                      NUMPY_FORMAT_VIPS_DTYPE[a.dtype.name])
+    vi = pyvips.Image.new_from_memory(
+        linear.data, width, height, bands, NUMPY_FORMAT_VIPS_DTYPE[a.dtype.name]
+    )
 
     if pyvips_interpretation is not None:
         vi = vi.copy(interpretation=pyvips_interpretation)
@@ -207,14 +212,21 @@ def determine_if_staining_round(src_dir):
         master_img_f = None
     else:
 
-        f_list = [os.path.join(src_dir, f) for f in os.listdir(src_dir) if get_img_type(os.path.join(src_dir, f)) is not None and not f.startswith(".")]
+        f_list = [
+            os.path.join(src_dir, f)
+            for f in os.listdir(src_dir)
+            if get_img_type(os.path.join(src_dir, f)) is not None
+            and not f.startswith(".")
+        ]
         extensions = [get_slide_extension(f) for f in f_list]
         format_counts = Counter(extensions)
         format_count_values = list(format_counts.values())
         n_formats = len(format_count_values)
         if n_formats > 1 and min(format_count_values) == 1:
             multifile_img = True
-            master_img_format = list(format_counts.keys())[np.argmin(format_count_values)]
+            master_img_format = list(format_counts.keys())[
+                np.argmin(format_count_values)
+            ]
             master_img_file_idx = extensions.index(master_img_format)
             master_img_f = f_list[master_img_file_idx]
         else:
@@ -225,16 +237,24 @@ def determine_if_staining_round(src_dir):
 
 
 def um_to_px(um, um_per_px):
-    """Conver mircon to pixel
-    """
-    return um * 1/um_per_px
+    """Conver mircon to pixel"""
+    return um * 1 / um_per_px
 
 
-def warp_slide(src_f, transformation_src_shape_rc, transformation_dst_shape_rc,
-               aligned_slide_shape_rc, M=None, dxdy=None,
-               level=0, series=None, interp_method="bicubic",
-               bbox_xywh=None, bg_color=None):
-    """ Warp a slide
+def warp_slide(
+    src_f,
+    transformation_src_shape_rc,
+    transformation_dst_shape_rc,
+    aligned_slide_shape_rc,
+    M=None,
+    dxdy=None,
+    level=0,
+    series=None,
+    interp_method="bicubic",
+    bbox_xywh=None,
+    bg_color=None,
+):
+    """Warp a slide
 
     Warp slide according to `M` and/or `non_rigid_dxdy`
 
@@ -290,18 +310,24 @@ def warp_slide(src_f, transformation_src_shape_rc, transformation_dst_shape_rc,
     if M is None and dxdy is None:
         return vips_slide
 
-    vips_warped = warp_tools.warp_img(img=vips_slide, M=M, bk_dxdy=dxdy,
-                                      transformation_dst_shape_rc=transformation_dst_shape_rc,
-                                      out_shape_rc=aligned_slide_shape_rc,
-                                      transformation_src_shape_rc=transformation_src_shape_rc,
-                                      bbox_xywh=bbox_xywh,
-                                      bg_color=bg_color,
-                                      interp_method=interp_method)
+    vips_warped = warp_tools.warp_img(
+        img=vips_slide,
+        M=M,
+        bk_dxdy=dxdy,
+        transformation_dst_shape_rc=transformation_dst_shape_rc,
+        out_shape_rc=aligned_slide_shape_rc,
+        transformation_src_shape_rc=transformation_src_shape_rc,
+        bbox_xywh=bbox_xywh,
+        bg_color=bg_color,
+        interp_method=interp_method,
+    )
 
     return vips_warped
 
 
-def get_matplotlib_channel_colors(n_colors, name="gist_rainbow", min_lum=0.5, min_c=0.2):
+def get_matplotlib_channel_colors(
+    n_colors, name="gist_rainbow", min_lum=0.5, min_c=0.2
+):
     """Get channel colors using matplotlib colormaps
 
     Parameters
@@ -326,14 +352,14 @@ def get_matplotlib_channel_colors(n_colors, name="gist_rainbow", min_lum=0.5, mi
     """
     n = 200
     if n_colors > n:
-        n  = n_colors
-    all_colors =  cm.get_cmap(name)(np.linspace(0, 1, n))[..., 0:3]
+        n = n_colors
+    all_colors = cm.get_cmap(name)(np.linspace(0, 1, n))[..., 0:3]
 
     # Only allow bright colors #
     jch = preprocessing.rgb2jch(all_colors)
     all_colors = all_colors[(jch[..., 0] >= min_lum) & (jch[..., 1] >= min_c)]
     channel_colors = viz.get_n_colors(all_colors, n_colors)
-    channel_colors = (255*channel_colors).astype(np.uint8)
+    channel_colors = (255 * channel_colors).astype(np.uint8)
 
     return channel_colors
 
@@ -359,14 +385,14 @@ def turbo_channel_colors(n_colors):
 
     turbo = viz.turbo_cmap()[40:-40]
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
-        cam16 = colour.convert(turbo, 'sRGB', "CAM16UCS")
+        cam16 = colour.convert(turbo, "sRGB", "CAM16UCS")
         cam16[..., 0] *= 1.1
-        brighter_turbo = colour.convert(cam16, "CAM16UCS", 'sRGB')
+        brighter_turbo = colour.convert(cam16, "CAM16UCS", "sRGB")
 
     brighter_turbo = np.clip(brighter_turbo, 0, 1)
 
     channel_colors = viz.get_n_colors(brighter_turbo, n_colors)
-    channel_colors = (255*channel_colors).astype(np.uint8)
+    channel_colors = (255 * channel_colors).astype(np.uint8)
 
     return channel_colors
 
@@ -392,6 +418,6 @@ def perceptually_uniform_channel_colors(n_colors):
     """
     cmap = viz.jzazbz_cmap()
     channel_colors = viz.get_n_colors(cmap, n_colors)
-    channel_colors = (channel_colors*255).astype(np.uint8)
+    channel_colors = (channel_colors * 255).astype(np.uint8)
 
     return channel_colors

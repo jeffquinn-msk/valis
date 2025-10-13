@@ -1,9 +1,12 @@
 import sys
 import platform
+
 print(platform.python_version())
 
 
 from valis import slide_io
+
+
 def pytest_sessionstart(session):
     """
     Called after the Session object has been created and

@@ -15,18 +15,19 @@ from . import viz
 from . import warp_tools
 from . import micro_rigid_registrar
 
-__all__ = ["affine_optimizer",
-           "feature_detectors",
-           "feature_matcher",
-           "non_rigid_registrars",
-           "preprocessing",
-           "registration",
-           "serial_non_rigid",
-           "serial_rigid",
-           "slide_io",
-           "slide_tools",
-           "valtils",
-           "viz",
-           "warp_tools",
-           "micro_rigid_registrar"
-           ]
+__all__ = [
+    "affine_optimizer",
+    "feature_detectors",
+    "feature_matcher",
+    "non_rigid_registrars",
+    "preprocessing",
+    "registration",
+    "serial_non_rigid",
+    "serial_rigid",
+    "slide_io",
+    "slide_tools",
+    "valtils",
+    "viz",
+    "warp_tools",
+    "micro_rigid_registrar",
+]
