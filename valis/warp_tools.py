@@ -3286,7 +3286,7 @@ def get_overlapping_poly(mesh_poly_coords):
             else:
                 poly_diffs.append(diff.buffer(buffer_v))
 
-    n_cpu = valtils.get_ncpus_available() - 1
+    n_cpu = valtils.get_ncpus_available()
     res = pqdm(range(n_poly), clip_poly, n_jobs=n_cpu, unit="image", leave=None)
 
     return overlapping_poly_list, poly_diffs

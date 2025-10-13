@@ -383,7 +383,7 @@ class MicroRigidRegistrar(object):
         print(
             f"Aligning {moving_slide.name} to {fixed_slide.name}. ROI width, height is {reg_bbox[2:]} pixels"
         )
-        n_cpu = valtils.get_ncpus_available() - 1
+        n_cpu = valtils.get_ncpus_available()
 
         with suppress(UserWarning):
             # Avoid printing warnings that not enough matches were found, which can happen frequently with this
