@@ -710,7 +710,7 @@ class SerialRigidRegistrar(object):
             valis_obj=valis_obj,
         )
 
-        n_cpu = valtils.get_ncpus_available() - 1
+        n_cpu = valtils.get_ncpus_available()
         res = pqdm(
             range(self.size),
             match_adj_fxn,

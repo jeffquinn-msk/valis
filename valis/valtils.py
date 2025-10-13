@@ -223,11 +223,9 @@ def hex_to_rgb(value):
 
 
 def get_ncpus_available():
-    ncpus = 2  # returning 2 by default as code assumes ncpus > 1 (or that packages gracefully handle scheduling 0 jobs/threads)
-
     if hasattr(os, "sched_getaffinity"):
-        ncpus = len(os.sched_getaffinity(0))
+        return len(os.sched_getaffinity(0))
     elif hasattr(multiprocessing, "cpu_count"):
-        ncpus = multiprocessing.cpu_count()
-
-    return int(ncpus)
+        return multiprocessing.cpu_count()
+    else:
+        return 1

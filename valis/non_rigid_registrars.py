@@ -1605,7 +1605,7 @@ class NonRigidTileRegistrar(object):
 
         print("======== Registering tiles\n")
 
-        n_cpu = valtils.get_ncpus_available() - 1
+        n_cpu = valtils.get_ncpus_available()
 
         lock = multiprocessing.Lock()
         args = [{"tile_idx": i, "lock": lock} for i in range(self.n_tiles)]
