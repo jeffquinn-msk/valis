@@ -23,6 +23,7 @@ import xml.etree.ElementTree as elementTree
 import unicodedata
 import ome_types
 from aicspylibczi import CziFile
+from tifffile import TiffFile
 from tqdm import tqdm
 from difflib import get_close_matches
 import traceback
@@ -830,7 +831,6 @@ class VipsSlideReader(SlideReader):
         self.verify_xml()
 
     def create_metadata(self):
-
         vips_img = pyvips.Image.new_from_file(self.src_f)
 
         if "image-description" in vips_img.get_fields():
@@ -877,13 +877,12 @@ class VipsSlideReader(SlideReader):
             slide_meta.channel_names = None
 
         if self.is_ome:
-            toilet_roll = pyvips.Image.new_from_file(self.src_f, n=-1, subifd=-1)
-            page = pyvips.Image.new_from_file(
-                self.src_f, n=1, subifd=-1, access="random"
-            )
-            n_pages = toilet_roll.height / page.height
+            with TiffFile(self.src_f) as tif:
+                n_pages = len(tif.pages)
             if n_pages > 1:
                 slide_meta.n_channels = int(n_pages)
+        else:
+            slide_meta.n_channels = 1
 
         return slide_meta
 
@@ -891,11 +890,8 @@ class VipsSlideReader(SlideReader):
         img_xml = self.metadata.original_xml
         if img_xml is not None and not self.use_openslide:
             # Don't check openslide images, as metadata counts alpha channel
-            try:
-                ome_info = get_ome_obj(img_xml)
-                assert len(ome_info.images) > 0
-            except:
-                return None
+            ome_info = get_ome_obj(img_xml)
+            assert len(ome_info.images) > 0
             read_img = self.slide2vips(0)
             self.metadata = check_xml_img_match(
                 xml=img_xml,
@@ -943,17 +939,15 @@ class VipsSlideReader(SlideReader):
 
         """
 
-        toilet_roll = pyvips.Image.new_from_file(self.src_f, n=-1, subifd=level - 1)
         page = pyvips.Image.new_from_file(
             self.src_f, n=1, subifd=level - 1, access="random"
         )
         if page.interpretation in VIPS_RGB_FORMATS:
             vips_slide = page
         else:
-            page_height = page.height
             pages = [
-                toilet_roll.crop(0, y, toilet_roll.width, page_height)
-                for y in range(0, toilet_roll.height, page_height)
+                pyvips.Image.new_from_file(self.src_f, page=p-1)
+                for p in range(self.metadata.n_channels)
             ]
 
             vips_slide = pages[0].bandjoin(pages[1:])
@@ -993,10 +987,6 @@ class VipsSlideReader(SlideReader):
             vips_slide = pyvips.Image.new_from_file(
                 self.src_f, level=level, autocrop=True, rgb=False, access="random"
             )[0:3]
-
-        elif self.is_ome:
-            vips_slide = self._slide2vips_ome_one_series(level=level, *args, **kwargs)
-
         else:
             try:
                 vips_slide = pyvips.Image.new_from_file(
@@ -2035,8 +2025,6 @@ def get_slide_reader(src_f, series=None):
     # Give preference to vips/openslide since it will be fastest
     if (
         (can_use_vips or can_use_openslide)
-        and one_series
-        and series in [0, None]
         and not is_flattened_tiff
     ):
         return VipsSlideReader
@@ -2060,10 +2048,7 @@ def get_slide_reader(src_f, series=None):
     except:
         pass
 
-    msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
-    valtils.print_warning(msg, rgb=Fore.RED)
-
-    return None
+    raise RuntimeError(f"Unable to find reader to open {os.path.split(src_f)[-1]}")
 
 
 # Write slides to ome.tiff #
