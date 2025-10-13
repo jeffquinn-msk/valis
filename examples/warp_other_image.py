@@ -56,7 +56,3 @@ warped_scaled_img[mask_boundaries] = [0, 255, 0]
 
 plt.imshow(warped_scaled_img)
 plt.show()
-
-
-# Shutdown the JVM
-registration.kill_jvm()

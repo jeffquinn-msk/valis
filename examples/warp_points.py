@@ -85,6 +85,3 @@ out_f = os.path.join(dst_dir, f"{registrar.name}_roi.png")
 plt.tight_layout()
 plt.savefig(out_f)
 plt.close()
-
-# Opening the slide initialized the JVM, so it needs to be killed
-registration.kill_jvm()

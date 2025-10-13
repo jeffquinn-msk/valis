@@ -71,7 +71,3 @@ registrar.warp_and_save_slides(registered_slide_dst_dir)
 stop = time.time()
 elapsed = stop - start
 print(f"saving {registrar.size} slides took {elapsed/60} minutes")
-
-
-# Shutdown the JVM
-registration.kill_jvm()

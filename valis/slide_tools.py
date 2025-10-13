@@ -56,7 +56,7 @@ VIPS_FORMAT_NUMPY_DTYPE = {
 }
 
 
-NUMPY_FORMAT_BF_DTYPE = {
+NUMPY_FORMAT_OME_DTYPE = {
     "uint8": "uint8",
     "int8": "int8",
     "uint16": "uint16",
@@ -65,18 +65,6 @@ NUMPY_FORMAT_BF_DTYPE = {
     "int32": "int32",
     "float32": "float",
     "float64": "double",
-}
-
-# See slide_io.bf_to_numpy_dtype
-BF_DTYPE_PIXEL_TYPE = {
-    "uint8": 1,
-    "int8": 0,
-    "uint16": 3,
-    "int16": 2,
-    "uint32": 5,
-    "int32": 4,
-    "float": 6,
-    "double": 7,
 }
 
 CZI_FORMAT_NUMPY_DTYPE = {
@@ -89,11 +77,11 @@ CZI_FORMAT_NUMPY_DTYPE = {
     "invalid": "uint8",
 }
 
-CZI_FORMAT_TO_BF_FORMAT = {
-    k: NUMPY_FORMAT_BF_DTYPE[v] for k, v in CZI_FORMAT_NUMPY_DTYPE.items()
+CZI_FORMAT_TO_OME_FORMAT = {
+    k: NUMPY_FORMAT_OME_DTYPE[v] for k, v in CZI_FORMAT_NUMPY_DTYPE.items()
 }
 
-BF_FORMAT_NUMPY_DTYPE = {v: k for k, v in NUMPY_FORMAT_BF_DTYPE.items()}
+OME_FORMAT_NUMPY_DTYPE = {v: k for k, v in NUMPY_FORMAT_OME_DTYPE.items()}
 
 
 def vips2numpy(vi):
@@ -234,13 +222,6 @@ def get_img_type(img_f):
 
     can_use_openslide = slide_io.check_to_use_openslide(str(img_f))
     if can_use_openslide or is_ome_tiff or is_czi:
-        return TYPE_SLIDE_NAME
-
-    # Finally, see if Bioformats can read slide.
-    if slide_io.BF_READABLE_FORMATS is None:
-        slide_io.init_jvm()
-    can_use_bf = f_extension in slide_io.BF_READABLE_FORMATS
-    if can_use_bf:
         return TYPE_SLIDE_NAME
 
     return kind
