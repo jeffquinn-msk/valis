@@ -16,8 +16,7 @@ DEFAULT_ROI = ROI_MASK
 DEFAULT_FD = feature_detectors.SuperPointFD
 DEFAULT_MATCHER = feature_matcher.SuperPointAndGlue
 DEFAULT_PROCESSOR = preprocessing.StainFlattener
-DEFAULT_PROCESSOR_KWARGS = {"adaptive_eq":False, "with_mask":False}
-
+DEFAULT_PROCESSOR_KWARGS = {"adaptive_eq": False, "with_mask": False}
 
 
 class MicroRigidRegistrar(object):
@@ -65,10 +64,17 @@ class MicroRigidRegistrar(object):
 
     """
 
-    def __init__(self, val_obj, feature_detector_cls=DEFAULT_FD,
-                 matcher=DEFAULT_MATCHER, img_processor_cls=DEFAULT_PROCESSOR,
-                 img_processor_kwargs=DEFAULT_PROCESSOR_KWARGS,
-                 scale=0.5**3, tile_wh=2**9, roi=DEFAULT_ROI):
+    def __init__(
+        self,
+        val_obj,
+        feature_detector_cls=DEFAULT_FD,
+        matcher=DEFAULT_MATCHER,
+        img_processor_cls=DEFAULT_PROCESSOR,
+        img_processor_kwargs=DEFAULT_PROCESSOR_KWARGS,
+        scale=0.5**3,
+        tile_wh=2**9,
+        roi=DEFAULT_ROI,
+    ):
         """
 
         Parameters
@@ -108,22 +114,28 @@ class MicroRigidRegistrar(object):
         self.scale = scale
         self.tile_wh = tile_wh
         self.roi = roi
-        self.iter_order = warp_tools.get_alignment_indices(val_obj.size, val_obj.reference_img_idx)
+        self.iter_order = warp_tools.get_alignment_indices(
+            val_obj.size, val_obj.reference_img_idx
+        )
 
     def create_mask(self, moving_slide, fixed_slide):
-        """Create mask used to define bounding box of search area
-
-        """
+        """Create mask used to define bounding box of search area"""
 
         pair_slide_list = [moving_slide, fixed_slide]
         if self.val_obj.create_masks:
 
-            temp_mask = self.val_obj._create_mask_from_processed(slide_list=pair_slide_list)
+            temp_mask = self.val_obj._create_mask_from_processed(
+                slide_list=pair_slide_list
+            )
         else:
-            temp_mask = self.val_obj._create_non_rigid_reg_mask_from_bbox(slide_list=pair_slide_list)
+            temp_mask = self.val_obj._create_non_rigid_reg_mask_from_bbox(
+                slide_list=pair_slide_list
+            )
 
         fixed_bbox = np.full(fixed_slide.processed_img_shape_rc, 255, dtype=np.uint8)
-        fixed_mask = fixed_slide.warp_img(fixed_bbox, non_rigid=False, crop=False, interp_method="nearest")
+        fixed_mask = fixed_slide.warp_img(
+            fixed_bbox, non_rigid=False, crop=False, interp_method="nearest"
+        )
 
         mask = preprocessing.combine_masks(temp_mask, fixed_mask, op="and")
 
@@ -131,8 +143,15 @@ class MicroRigidRegistrar(object):
 
     def register(self):
         # Get slides in correct order
-        slide_idx, slide_names = list(zip(*[[slide_obj.stack_idx, slide_obj.name] for slide_obj in self.val_obj.slide_dict.values()]))
-        slide_order = np.argsort(slide_idx) # sorts ascending
+        slide_idx, slide_names = list(
+            zip(
+                *[
+                    [slide_obj.stack_idx, slide_obj.name]
+                    for slide_obj in self.val_obj.slide_dict.values()
+                ]
+            )
+        )
+        slide_order = np.argsort(slide_idx)  # sorts ascending
         slide_list = [self.val_obj.slide_dict[slide_names[i]] for i in slide_order]
 
         for moving_idx, fixed_idx in self.iter_order:
@@ -150,13 +169,13 @@ class MicroRigidRegistrar(object):
         moving_img = warp_tools.rescale_img(moving_img, self.scale)
 
         moving_shape_rc = warp_tools.get_shape(moving_img)[0:2]
-        moving_sxy = (moving_shape_rc/moving_slide.reg_img_shape_rc)[::-1]
+        moving_sxy = (moving_shape_rc / moving_slide.reg_img_shape_rc)[::-1]
 
         fixed_img = fixed_slide.warp_slide(0, non_rigid=False, crop=False)
         fixed_img = warp_tools.rescale_img(fixed_img, self.scale)
 
         fixed_shape_rc = warp_tools.get_shape(fixed_img)[0:2]
-        fixed_sxy = (fixed_shape_rc/fixed_slide.reg_img_shape_rc)[::-1]
+        fixed_sxy = (fixed_shape_rc / fixed_slide.reg_img_shape_rc)[::-1]
 
         # Perform Rigid registration where masks overlap
         aligned_slide_shape_rc = warp_tools.get_shape(moving_img)[0:2]
@@ -164,13 +183,19 @@ class MicroRigidRegistrar(object):
         if self.roi == ROI_MASK:
             small_reg_bbox = warp_tools.mask2xy(mask)
         elif self.roi == ROI_MATCHES:
-            reg_moving_xy = warp_tools.warp_xy(moving_slide.xy_matched_to_prev, moving_slide.M)
+            reg_moving_xy = warp_tools.warp_xy(
+                moving_slide.xy_matched_to_prev, moving_slide.M
+            )
             reg_fixed_xy = warp_tools.warp_xy(moving_slide.xy_in_prev, fixed_slide.M)
             small_reg_bbox = np.vstack([reg_moving_xy, reg_fixed_xy])
 
-        reg_s = (aligned_slide_shape_rc/np.array(mask.shape))[::-1]
-        reg_bbox = warp_tools.xy2bbox(small_reg_bbox*reg_s)
-        slide_mask = warp_tools.resize_img(warp_tools.numpy2vips(mask), warp_tools.get_shape(fixed_img)[0:2], interp_method="nearest")
+        reg_s = (aligned_slide_shape_rc / np.array(mask.shape))[::-1]
+        reg_bbox = warp_tools.xy2bbox(small_reg_bbox * reg_s)
+        slide_mask = warp_tools.resize_img(
+            warp_tools.numpy2vips(mask),
+            warp_tools.get_shape(fixed_img)[0:2],
+            interp_method="nearest",
+        )
 
         ## Draw mask on image
         # small_reg_bbox_xywh = warp_tools.xy2bbox(small_reg_bbox)
@@ -180,7 +205,6 @@ class MicroRigidRegistrar(object):
         # mask_draw_img[bbox_draw_rc[0], bbox_draw_rc[1]] = [0, 255, 0]
         # io.imsave(os.path.join(self.val_obj.dst_dir, f"{self.val_obj.name}_{moving_slide.name}_to_{fixed_slide.name}_micro_rigid_bbox.png"), mask_draw_img)
         ###
-
 
         # Collect high rez matches
         high_rez_moving_match_xy_list = []
@@ -198,38 +222,50 @@ class MicroRigidRegistrar(object):
             if region_mask.max() == 0:
                 continue
 
-            moving_region, moving_processed, moving_bbox_xywh = self.process_roi(img=moving_img,
-                                                                            slide_obj=moving_slide,
-                                                                            xy=bbox_xy,
-                                                                            processor_cls=self.img_processor_cls,
-                                                                            processor_kwargs=self.img_processor_kwargs,
-                                                                            apply_mask=False,
-                                                                            scale=1.0
-                                                                            )
+            moving_region, moving_processed, moving_bbox_xywh = self.process_roi(
+                img=moving_img,
+                slide_obj=moving_slide,
+                xy=bbox_xy,
+                processor_cls=self.img_processor_cls,
+                processor_kwargs=self.img_processor_kwargs,
+                apply_mask=False,
+                scale=1.0,
+            )
 
-            fixed_region, fixed_processed, fixed_bbox_xywh = self.process_roi(img=fixed_img,
-                                                                            slide_obj=fixed_slide,
-                                                                            xy=bbox_xy,
-                                                                            processor_cls=self.img_processor_cls,
-                                                                            processor_kwargs=self.img_processor_kwargs,
-                                                                            apply_mask=False,
-                                                                            scale=1.0
-                                                                            )
+            fixed_region, fixed_processed, fixed_bbox_xywh = self.process_roi(
+                img=fixed_img,
+                slide_obj=fixed_slide,
+                xy=bbox_xy,
+                processor_cls=self.img_processor_cls,
+                processor_kwargs=self.img_processor_kwargs,
+                apply_mask=False,
+                scale=1.0,
+            )
 
-            moving_normed, fixed_normed = self.norm_imgs(img_list=[moving_processed, fixed_processed])
+            moving_normed, fixed_normed = self.norm_imgs(
+                img_list=[moving_processed, fixed_processed]
+            )
 
             try:
                 if hasattr(matcher, "kp_detector_name"):
                     # Matcher ( e.g. SuperPointAndGlue) can both detect and describe keypoints
-                    _, filtered_match_info12, _, _ = matcher.match_images(img1=moving_normed, img2=fixed_normed)
+                    _, filtered_match_info12, _, _ = matcher.match_images(
+                        img1=moving_normed, img2=fixed_normed
+                    )
 
                 else:
 
                     moving_kp, moving_desc = fd.detect_and_compute(moving_normed)
                     fixed_kp, fixed_desc = fd.detect_and_compute(fixed_normed)
 
-                    _, filtered_match_info12, _, _ = matcher.match_images(img1=moving_normed, desc1=moving_desc, kp1_xy=moving_kp,
-                                                                          img2=fixed_normed,  desc2=fixed_desc,  kp2_xy=fixed_kp)
+                    _, filtered_match_info12, _, _ = matcher.match_images(
+                        img1=moving_normed,
+                        desc1=moving_desc,
+                        kp1_xy=moving_kp,
+                        img2=fixed_normed,
+                        desc2=fixed_desc,
+                        kp2_xy=fixed_kp,
+                    )
 
                 filtered_matched_moving_xy = filtered_match_info12.matched_kp1_xy
                 filtered_matched_fixed_xy = filtered_match_info12.matched_kp2_xy
@@ -239,7 +275,13 @@ class MicroRigidRegistrar(object):
                 if filtered_matched_moving_xy.shape[0] < 3:
                     continue
 
-                filtered_matched_moving_xy, filtered_matched_fixed_xy, tukey_idx = feature_matcher.filter_matches_tukey(filtered_matched_moving_xy, filtered_matched_fixed_xy, tform=transform.EuclideanTransform())
+                filtered_matched_moving_xy, filtered_matched_fixed_xy, tukey_idx = (
+                    feature_matcher.filter_matches_tukey(
+                        filtered_matched_moving_xy,
+                        filtered_matched_fixed_xy,
+                        tform=transform.EuclideanTransform(),
+                    )
+                )
                 matched_moving_desc = matched_moving_desc[tukey_idx, :]
                 matched_fixed_desc = matched_fixed_desc[tukey_idx, :]
                 if filtered_matched_moving_xy.shape[0] < 3:
@@ -273,42 +315,78 @@ class MicroRigidRegistrar(object):
         high_rez_moving_match_xy = np.vstack(high_rez_moving_match_xy_list)
         high_rez_fixed_match_xy = np.vstack(high_rez_fixed_match_xy_list)
 
-        temp_high_rez_moving_matched_kp_xy, temp_high_rez_fixed_matched_kp_xy, ransac_idx = feature_matcher.filter_matches_ransac(high_rez_moving_match_xy, high_rez_fixed_match_xy, 20)
-        high_rez_moving_matched_kp_xy, high_rez_fixed_matched_kp_xy, tukey_idx = feature_matcher.filter_matches_tukey(temp_high_rez_moving_matched_kp_xy, temp_high_rez_fixed_matched_kp_xy, tform=transform.EuclideanTransform())
+        (
+            temp_high_rez_moving_matched_kp_xy,
+            temp_high_rez_fixed_matched_kp_xy,
+            ransac_idx,
+        ) = feature_matcher.filter_matches_ransac(
+            high_rez_moving_match_xy, high_rez_fixed_match_xy, 20
+        )
+        high_rez_moving_matched_kp_xy, high_rez_fixed_matched_kp_xy, tukey_idx = (
+            feature_matcher.filter_matches_tukey(
+                temp_high_rez_moving_matched_kp_xy,
+                temp_high_rez_fixed_matched_kp_xy,
+                tform=transform.EuclideanTransform(),
+            )
+        )
 
-        scaled_moving_kp = high_rez_moving_matched_kp_xy*(1/moving_sxy)
-        scaled_fixed_kp = high_rez_fixed_matched_kp_xy*(1/fixed_sxy)
+        scaled_moving_kp = high_rez_moving_matched_kp_xy * (1 / moving_sxy)
+        scaled_fixed_kp = high_rez_fixed_matched_kp_xy * (1 / fixed_sxy)
 
         if self.val_obj.create_masks:
-            moving_kp_in_og = warp_tools.warp_xy(scaled_moving_kp, M=np.linalg.inv(moving_slide.M))
-            moving_features_in_mask_idx = warp_tools.get_xy_inside_mask(xy=moving_kp_in_og, mask=moving_slide.rigid_reg_mask)
+            moving_kp_in_og = warp_tools.warp_xy(
+                scaled_moving_kp, M=np.linalg.inv(moving_slide.M)
+            )
+            moving_features_in_mask_idx = warp_tools.get_xy_inside_mask(
+                xy=moving_kp_in_og, mask=moving_slide.rigid_reg_mask
+            )
 
-            fixed_kp_in_og = warp_tools.warp_xy(scaled_fixed_kp, M=np.linalg.inv(fixed_slide.M))
-            fixed_features_in_mask_idx = warp_tools.get_xy_inside_mask(xy=fixed_kp_in_og, mask=fixed_slide.rigid_reg_mask)
+            fixed_kp_in_og = warp_tools.warp_xy(
+                scaled_fixed_kp, M=np.linalg.inv(fixed_slide.M)
+            )
+            fixed_features_in_mask_idx = warp_tools.get_xy_inside_mask(
+                xy=fixed_kp_in_og, mask=fixed_slide.rigid_reg_mask
+            )
 
-            if len(moving_features_in_mask_idx) > 0 and len(fixed_features_in_mask_idx) > 0:
-                matches_in_masks = np.intersect1d(moving_features_in_mask_idx, fixed_features_in_mask_idx)
+            if (
+                len(moving_features_in_mask_idx) > 0
+                and len(fixed_features_in_mask_idx) > 0
+            ):
+                matches_in_masks = np.intersect1d(
+                    moving_features_in_mask_idx, fixed_features_in_mask_idx
+                )
                 n_removed = scaled_moving_kp.shape[0] - len(matches_in_masks)
-                print(f"Removed {n_removed} features outside of the micro rigid mask for {moving_slide.name}. Went from {scaled_moving_kp.shape[0]} to {len(matches_in_masks)}")
+                print(
+                    f"Removed {n_removed} features outside of the micro rigid mask for {moving_slide.name}. Went from {scaled_moving_kp.shape[0]} to {len(matches_in_masks)}"
+                )
                 if len(matches_in_masks) > 0:
                     scaled_moving_kp = scaled_moving_kp[matches_in_masks, :]
                     scaled_fixed_kp = scaled_fixed_kp[matches_in_masks, :]
 
-                    high_rez_moving_matched_kp_xy = high_rez_moving_matched_kp_xy[matches_in_masks, :]
-                    high_rez_fixed_matched_kp_xy = high_rez_fixed_matched_kp_xy[matches_in_masks, :]
+                    high_rez_moving_matched_kp_xy = high_rez_moving_matched_kp_xy[
+                        matches_in_masks, :
+                    ]
+                    high_rez_fixed_matched_kp_xy = high_rez_fixed_matched_kp_xy[
+                        matches_in_masks, :
+                    ]
 
         # Estimate M using position in larger image
         transformer = transform.SimilarityTransform()
-        transformer.estimate(high_rez_fixed_matched_kp_xy, high_rez_moving_matched_kp_xy)
+        transformer.estimate(
+            high_rez_fixed_matched_kp_xy, high_rez_moving_matched_kp_xy
+        )
         M = transformer.params
 
         # Scale for use on original processed image
         slide_corners_xy = warp_tools.get_corners_of_image(moving_shape_rc)[::-1]
-        warped_slide_corners = warp_tools.warp_xy(slide_corners_xy, M=M,
-                                    transformation_src_shape_rc=moving_shape_rc,
-                                    transformation_dst_shape_rc=fixed_shape_rc,
-                                    src_shape_rc=moving_slide.reg_img_shape_rc,
-                                    dst_shape_rc=fixed_slide.reg_img_shape_rc)
+        warped_slide_corners = warp_tools.warp_xy(
+            slide_corners_xy,
+            M=M,
+            transformation_src_shape_rc=moving_shape_rc,
+            transformation_dst_shape_rc=fixed_shape_rc,
+            src_shape_rc=moving_slide.reg_img_shape_rc,
+            dst_shape_rc=fixed_slide.reg_img_shape_rc,
+        )
 
         M_tform = transform.ProjectiveTransform()
         M_tform.estimate(warped_slide_corners, slide_corners_xy)
@@ -316,11 +394,25 @@ class MicroRigidRegistrar(object):
 
         new_M = moving_slide.M @ scaled_M
 
-        matched_moving_in_og = warp_tools.warp_xy(scaled_moving_kp, M=np.linalg.inv(moving_slide.M))
-        matched_fixed_in_og = warp_tools.warp_xy(scaled_fixed_kp, M=np.linalg.inv(fixed_slide.M))
+        matched_moving_in_og = warp_tools.warp_xy(
+            scaled_moving_kp, M=np.linalg.inv(moving_slide.M)
+        )
+        matched_fixed_in_og = warp_tools.warp_xy(
+            scaled_fixed_kp, M=np.linalg.inv(fixed_slide.M)
+        )
 
-        og_d = np.mean(warp_tools.calc_d(warp_tools.warp_xy(moving_slide.xy_matched_to_prev, M=moving_slide.M), warp_tools.warp_xy(moving_slide.xy_in_prev, fixed_slide.M)))
-        new_d = np.mean(warp_tools.calc_d(warp_tools.warp_xy(matched_moving_in_og, M=new_M), warp_tools.warp_xy(matched_fixed_in_og, fixed_slide.M)))
+        og_d = np.mean(
+            warp_tools.calc_d(
+                warp_tools.warp_xy(moving_slide.xy_matched_to_prev, M=moving_slide.M),
+                warp_tools.warp_xy(moving_slide.xy_in_prev, fixed_slide.M),
+            )
+        )
+        new_d = np.mean(
+            warp_tools.calc_d(
+                warp_tools.warp_xy(matched_moving_in_og, M=new_M),
+                warp_tools.warp_xy(matched_fixed_in_og, fixed_slide.M),
+            )
+        )
 
         n_old_matches = moving_slide.xy_matched_to_prev.shape[0]
         n_new_matches = matched_moving_in_og.shape[0]
@@ -340,21 +432,27 @@ class MicroRigidRegistrar(object):
         x_step = np.min([wh, np.floor(bbox_xywh[2]).astype(int)])
         y_step = np.min([wh, np.floor(bbox_xywh[3]).astype(int)])
 
-        x_pos = np.arange(bbox_xywh[0], bbox_xywh[0]+bbox_xywh[2], x_step)
+        x_pos = np.arange(bbox_xywh[0], bbox_xywh[0] + bbox_xywh[2], x_step)
         max_x, max_y = np.round(bbox_xywh[0:2] + bbox_xywh[2:]).astype(int)
         if x_pos[-1] < max_x - 1:
             x_pos = np.array([*x_pos, max_x])
 
-        y_pos = np.arange(bbox_xywh[1], bbox_xywh[1]+bbox_xywh[3], y_step)
+        y_pos = np.arange(bbox_xywh[1], bbox_xywh[1] + bbox_xywh[3], y_step)
         if y_pos[-1] < max_y - 1:
             y_pos = np.array([*y_pos, max_y])
 
-        tile_bbox_list = [np.array([[x_pos[i], y_pos[j]], [x_pos[i+1], y_pos[j+1]]]) for j in range(len(y_pos) - 1) for i in range(len(x_pos) - 1)]
+        tile_bbox_list = [
+            np.array([[x_pos[i], y_pos[j]], [x_pos[i + 1], y_pos[j + 1]]])
+            for j in range(len(y_pos) - 1)
+            for i in range(len(x_pos) - 1)
+        ]
 
         return tile_bbox_list
 
     def norm_imgs(self, img_list):
-        target_processing_stats = preprocessing.get_channel_stats(np.hstack([img.reshape(-1) for img in img_list]))
+        target_processing_stats = preprocessing.get_channel_stats(
+            np.hstack([img.reshape(-1) for img in img_list])
+        )
 
         normed_list = [None] * len(img_list)
         for i, img in enumerate(img_list):
@@ -363,11 +461,22 @@ class MicroRigidRegistrar(object):
             except ValueError:
                 processed = img
 
-            normed_list[i] = exposure.rescale_intensity(processed, out_range=(0, 255)).astype(np.uint8)
+            normed_list[i] = exposure.rescale_intensity(
+                processed, out_range=(0, 255)
+            ).astype(np.uint8)
 
         return normed_list
 
-    def process_roi(self, img, slide_obj, xy, processor_cls, processor_kwargs, apply_mask=True, scale=0.5):
+    def process_roi(
+        self,
+        img,
+        slide_obj,
+        xy,
+        processor_cls,
+        processor_kwargs,
+        apply_mask=True,
+        scale=0.5,
+    ):
         is_array = isinstance(img, np.ndarray)
         if is_array:
             vips_img = warp_tools.numpy2vips(img)
@@ -383,7 +492,9 @@ class MicroRigidRegistrar(object):
 
         region_np = warp_tools.vips2numpy(region)
 
-        processor = processor_cls(region_np, src_f=slide_obj.src_f, level=0, series=slide_obj.series)
+        processor = processor_cls(
+            region_np, src_f=slide_obj.src_f, level=0, series=slide_obj.series
+        )
         processed_img = processor.process_image(**processor_kwargs)
 
         if apply_mask:

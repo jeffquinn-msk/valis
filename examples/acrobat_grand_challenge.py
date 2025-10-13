@@ -25,6 +25,7 @@ from valis.preprocessing import ColorfulStandardizer, DEFAULT_COLOR_STD_C
 
 DRAW_IMG_SIZE = 500
 
+
 def get_lines_img(img, v_ksize, h_ksize):
 
     v_krnl = np.ones((1, v_ksize))
@@ -48,9 +49,9 @@ class AcrobatProcessor(ColorfulStandardizer):
     """
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
-
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self, od_clip=0.25, lines_diff_t=0.025):
         """
@@ -63,22 +64,22 @@ class AcrobatProcessor(ColorfulStandardizer):
 
         line_img = get_lines_img(od_summary, 15, 15)
 
-        lines_mask = 255*(line_img > lines_diff_t).astype(np.uint8)
-        very_dense = 255*(od_summary >= 0.1).astype(np.uint8)
+        lines_mask = 255 * (line_img > lines_diff_t).astype(np.uint8)
+        very_dense = 255 * (od_summary >= 0.1).astype(np.uint8)
 
         edge_artifacts = np.zeros_like(lines_mask)
         edge_artifacts[lines_mask > 0] = 255
         edge_artifacts[very_dense > 0] = 255
         _, edge_artifacts = preprocessing.create_edges_mask(edge_artifacts)
 
-        mask = 255*(edge_artifacts == 0).astype(np.uint8)
+        mask = 255 * (edge_artifacts == 0).astype(np.uint8)
 
         squashed_od = np.clip(od_summary, 0, od_clip)
 
         bg_od, _ = filters.threshold_multiotsu(squashed_od[mask > 0])
 
         bg_od = np.quantile(squashed_od[mask > 0], 0.5)
-        fg = 255*(squashed_od > bg_od).astype(np.uint8)
+        fg = 255 * (squashed_od > bg_od).astype(np.uint8)
         fg[mask == 0] = 0
         fg = preprocessing.mask2contours(fg, 0)
         fg_lines = get_lines_img(fg, 25, 25)
@@ -90,7 +91,9 @@ class AcrobatProcessor(ColorfulStandardizer):
 
         return bbox_mask
 
-    def process_image(self, blk_thresh=0.75, c=DEFAULT_COLOR_STD_C, invert=True, *args, **kwargs):
+    def process_image(
+        self, blk_thresh=0.75, c=DEFAULT_COLOR_STD_C, invert=True, *args, **kwargs
+    ):
 
         # Process image using default method
         std_rgb = preprocessing.standardize_colorfulness(self.image, c)
@@ -98,37 +101,43 @@ class AcrobatProcessor(ColorfulStandardizer):
 
         if invert:
             std_g = 255 - std_g
-        processed_img = exposure.rescale_intensity(std_g, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            std_g, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         # Detect black borders commonly found in this dataset
         cam_d, cam = preprocessing.calc_background_color_dist(self.image)
-        cam_black = colour.convert(np.repeat(0, 3), 'sRGB', 'CAM16UCS')
-        black_dist = np.sqrt(np.sum((cam - cam_black)**2, axis=2))
-        dark_regions = 255*(black_dist < blk_thresh).astype(np.uint8)
-        dark_contours, _ = cv2.findContours(dark_regions, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cam_black = colour.convert(np.repeat(0, 3), "sRGB", "CAM16UCS")
+        black_dist = np.sqrt(np.sum((cam - cam_black) ** 2, axis=2))
+        dark_regions = 255 * (black_dist < blk_thresh).astype(np.uint8)
+        dark_contours, _ = cv2.findContours(
+            dark_regions, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         edge_artifact_mask = np.zeros_like(dark_regions)
 
         for cnt in dark_contours:
             cnt_xy = np.squeeze(cnt, 1)
-            on_border_idx = np.where((cnt_xy[:, 0] == 0) |
-                                     (cnt_xy[:, 0] == dark_regions.shape[1]-1) |
-                                     (cnt_xy[:, 1] == 0) |
-                                     (cnt_xy[:, 1] == dark_regions.shape[0]-1)
-                                     )[0]
+            on_border_idx = np.where(
+                (cnt_xy[:, 0] == 0)
+                | (cnt_xy[:, 0] == dark_regions.shape[1] - 1)
+                | (cnt_xy[:, 1] == 0)
+                | (cnt_xy[:, 1] == dark_regions.shape[0] - 1)
+            )[0]
 
-            if len(on_border_idx) > 0 :
+            if len(on_border_idx) > 0:
                 cv2.drawContours(edge_artifact_mask, [cnt], 0, 255, -1)
-
 
         eps = np.finfo("float").eps
         with colour.utilities.suppress_warnings(colour_usage_warnings=True):
-            if 1 < self.image.max() <= 255 and np.issubdtype(self.image.dtype, np.integer):
-                cam = colour.convert(self.image/255 + eps, 'sRGB', 'CAM16UCS')
+            if 1 < self.image.max() <= 255 and np.issubdtype(
+                self.image.dtype, np.integer
+            ):
+                cam = colour.convert(self.image / 255 + eps, "sRGB", "CAM16UCS")
             else:
-                cam = colour.convert(self.image + eps, 'sRGB', 'CAM16UCS')
+                cam = colour.convert(self.image + eps, "sRGB", "CAM16UCS")
 
         # Subtract background
-        brightest_thresh = np.quantile(cam[..., 0][edge_artifact_mask==0], 0.9)
+        brightest_thresh = np.quantile(cam[..., 0][edge_artifact_mask == 0], 0.9)
         brightest_idx = np.where(cam[..., 0] >= brightest_thresh)
         brightest_pixels = processed_img[brightest_idx]
         brightest_rgb = np.median(brightest_pixels, axis=0)
@@ -137,24 +146,29 @@ class AcrobatProcessor(ColorfulStandardizer):
         no_bg[edge_artifact_mask != 0] = 0
 
         # Adjust range and perform adaptive histogram equalization
-        no_bg = (255*exposure.equalize_adapthist(no_bg/no_bg.max())).astype(np.uint8)
+        no_bg = (255 * exposure.equalize_adapthist(no_bg / no_bg.max())).astype(
+            np.uint8
+        )
 
         return no_bg
 
 
-def create_he_mask(he_img, j_range=(0.0, 0.9), c_range=(0.05, 1), h_range=(150, 275), h_rotation=270):
+def create_he_mask(
+    he_img, j_range=(0.0, 0.9), c_range=(0.05, 1), h_range=(150, 275), h_rotation=270
+):
     """
     Segment H&E stain in the polar CAM16-UCS colorspace
     """
     jch = preprocessing.rgb2jch(he_img, h_rotation=h_rotation)
 
-    he_mask = 255*( (jch[..., 0] >= j_range[0]) &
-                (jch[..., 0] < j_range[1])  &
-                (jch[..., 1] >= c_range[0]) &
-                (jch[..., 1] < c_range[1])  &
-                (jch[..., 2] >= h_range[0]) &
-                (jch[..., 2] < h_range[1])
-                ).astype(np.uint8)
+    he_mask = 255 * (
+        (jch[..., 0] >= j_range[0])
+        & (jch[..., 0] < j_range[1])
+        & (jch[..., 1] >= c_range[0])
+        & (jch[..., 1] < c_range[1])
+        & (jch[..., 2] >= h_range[0])
+        & (jch[..., 2] < h_range[1])
+    ).astype(np.uint8)
 
     he_mask = preprocessing.mask2contours(he_mask)
     he_mask = preprocessing.remove_small_obj_and_lines_by_dist(he_mask)
@@ -162,7 +176,9 @@ def create_he_mask(he_img, j_range=(0.0, 0.9), c_range=(0.05, 1), h_range=(150, 
     return he_mask
 
 
-def create_reg_mask(reg, j_range=(0.05, 0.9), c_range=(0.05, 1), h_range=(150, 275), h_rotation=270):
+def create_reg_mask(
+    reg, j_range=(0.05, 0.9), c_range=(0.05, 1), h_range=(150, 275), h_rotation=270
+):
     """
     Mask is the bounding bbox around the H&E+ tissue
     """
@@ -171,7 +187,13 @@ def create_reg_mask(reg, j_range=(0.05, 0.9), c_range=(0.05, 1), h_range=(150, 2
     he_img_name = [n for n in img_names if re.search("_HE_", n) is not None][0]
 
     he_slide = reg.get_slide(he_img_name)
-    he_mask = create_he_mask(he_slide.image, j_range=j_range, c_range=c_range, h_range=h_range, h_rotation=h_rotation)
+    he_mask = create_he_mask(
+        he_slide.image,
+        j_range=j_range,
+        c_range=c_range,
+        h_range=h_range,
+        h_rotation=h_rotation,
+    )
     nr_he_mask = he_slide.warp_img(he_mask, interp_method="nearest", crop=False)
 
     mask_bbox = warp_tools.xy2bbox(warp_tools.mask2xy(nr_he_mask))
@@ -183,15 +205,19 @@ def create_reg_mask(reg, j_range=(0.05, 0.9), c_range=(0.05, 1), h_range=(150, 2
     return reg_mask
 
 
-
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Register images for the ACROBAT Grand Challenge')
-    parser.add_argument('-src_dir', type=str, help='source image to warp')
-    parser.add_argument('-dst_dir', type=str, help='where to save results')
-    parser.add_argument('-name', type=str, help='what to call the registrar')
-    parser.add_argument('-micro_reg_fraction', type=str, help='Size of images used for 2nd registation')
-    parser.add_argument('-landmarks_f', type=str, help='location of landmarks')
+
+    parser = argparse.ArgumentParser(
+        description="Register images for the ACROBAT Grand Challenge"
+    )
+    parser.add_argument("-src_dir", type=str, help="source image to warp")
+    parser.add_argument("-dst_dir", type=str, help="where to save results")
+    parser.add_argument("-name", type=str, help="what to call the registrar")
+    parser.add_argument(
+        "-micro_reg_fraction", type=str, help="Size of images used for 2nd registation"
+    )
+    parser.add_argument("-landmarks_f", type=str, help="location of landmarks")
     args = vars(parser.parse_args())
 
     src_dir = args["src_dir"]
@@ -204,25 +230,36 @@ if __name__ == "__main__":
     print(name)
 
     # Do initial registration, setting the reference image to be the H&E image
-    img_list = [f for f in os.listdir(src_dir) if imghdr.what(os.path.join(src_dir, f)) is not None]
+    img_list = [
+        f
+        for f in os.listdir(src_dir)
+        if imghdr.what(os.path.join(src_dir, f)) is not None
+    ]
     img_list = [os.path.join(src_dir, f) for f in img_list]
     he_img_f = [f for f in img_list if re.search("_HE_", f) is not None][0]
     start = time()
 
-
     with valtils.HiddenPrints():
-        registrar = registration.Valis(src_dir, dst_dir,
-                                       crop="reference",
-                                       reference_img_f=he_img_f,
-                                       create_masks=False,
-                                       name=name)
+        registrar = registration.Valis(
+            src_dir,
+            dst_dir,
+            crop="reference",
+            reference_img_f=he_img_f,
+            create_masks=False,
+            name=name,
+        )
 
-        rigid_registrar, non_rigid_registrar, error_df = registrar.register(brightfield_processing_cls=AcrobatProcessor)
-
-
+        rigid_registrar, non_rigid_registrar, error_df = registrar.register(
+            brightfield_processing_cls=AcrobatProcessor
+        )
 
     # Determine how large of an image to use for micro registration
-    img_dims = np.array([slide_obj.slide_dimensions_wh[0] for slide_obj in registrar.slide_dict.values()])
+    img_dims = np.array(
+        [
+            slide_obj.slide_dimensions_wh[0]
+            for slide_obj in registrar.slide_dict.values()
+        ]
+    )
     min_max_size = np.min([np.max(d) for d in img_dims])
     img_areas = [np.multiply(*d) for d in img_dims]
     max_img_w, max_img_h = tuple(img_dims[np.argmax(img_areas)])
@@ -231,16 +268,22 @@ if __name__ == "__main__":
         # Full size image
         micro_reg_size = None
     if isinstance(micro_reg_fraction, float):
-        micro_reg_size = np.floor(min_max_size*micro_reg_fraction).astype(int)
+        micro_reg_size = np.floor(min_max_size * micro_reg_fraction).astype(int)
     else:
         micro_reg_size = micro_reg_fraction
-        micro_reg_fraction = micro_reg_fraction/min_max_size
+        micro_reg_fraction = micro_reg_fraction / min_max_size
 
     # Determine if image will need to be divided into tiles
-    max_microreg_size  = (micro_reg_size, micro_reg_size)
-    displacement_gb = registrar.size*warp_tools.calc_memory_size_gb(max_microreg_size, 2, "float32")
-    processed_img_gb = registrar.size*warp_tools.calc_memory_size_gb(max_microreg_size, 1, "uint8")
-    img_gb = registrar.size*warp_tools.calc_memory_size_gb(max_microreg_size, 3, "uint8")
+    max_microreg_size = (micro_reg_size, micro_reg_size)
+    displacement_gb = registrar.size * warp_tools.calc_memory_size_gb(
+        max_microreg_size, 2, "float32"
+    )
+    processed_img_gb = registrar.size * warp_tools.calc_memory_size_gb(
+        max_microreg_size, 1, "uint8"
+    )
+    img_gb = registrar.size * warp_tools.calc_memory_size_gb(
+        max_microreg_size, 3, "uint8"
+    )
     estimated_gb = img_gb + displacement_gb + processed_img_gb
     if estimated_gb > registration.TILER_THRESH_GB:
         # Tiles may not have edge artifacts the AcrobatProcessor handles
@@ -252,26 +295,30 @@ if __name__ == "__main__":
     # Perform microregistration within the bounding box of the H&E+ tissue
     micro_reg_mask = create_reg_mask(registrar)
 
-    micro_reg, micro_error = registrar.register_micro(max_non_rigid_registartion_dim_px=micro_reg_size,
-                                reference_img_f=he_img_f,
-                                align_to_reference=True,
-                                mask=micro_reg_mask,
-                                brightfield_processing_cls=img_processor
-                                )
-
+    micro_reg, micro_error = registrar.register_micro(
+        max_non_rigid_registartion_dim_px=micro_reg_size,
+        reference_img_f=he_img_f,
+        align_to_reference=True,
+        mask=micro_reg_mask,
+        brightfield_processing_cls=img_processor,
+    )
 
     stop = time()
     elapsed = stop - start
-    elapsed_min = np.round(elapsed/60, 6)
+    elapsed_min = np.round(elapsed / 60, 6)
 
     # Create benchmarking results
-    pt_dir = os.path.join(dst_dir, "acrobat", "landmarks") # Warp points in the IHC image. Save in a separate directory
-    plot_dir = os.path.join(dst_dir, "acrobat", "plots") # Will also draw the warped points on both images
+    pt_dir = os.path.join(
+        dst_dir, "acrobat", "landmarks"
+    )  # Warp points in the IHC image. Save in a separate directory
+    plot_dir = os.path.join(
+        dst_dir, "acrobat", "plots"
+    )  # Will also draw the warped points on both images
     for d in [pt_dir, plot_dir]:
         pathlib.Path(d).mkdir(exist_ok=True, parents=True)
 
     draw_rad = 2
-    pt_cmap = (255*viz.jzazbz_cmap()).astype(np.uint8)
+    pt_cmap = (255 * viz.jzazbz_cmap()).astype(np.uint8)
 
     # Read in points
     pt_df = pd.read_csv(landmarks_f)
@@ -285,10 +332,12 @@ if __name__ == "__main__":
     from_slides.remove(ref_slide.name)
 
     ref_reg_img = ref_slide.processed_img
-    draw_ref_s = np.min(DRAW_IMG_SIZE/np.array(ref_reg_img.shape[0:2]))
+    draw_ref_s = np.min(DRAW_IMG_SIZE / np.array(ref_reg_img.shape[0:2]))
     draw_ref_img = warp_tools.rescale_img(ref_reg_img, draw_ref_s)
     draw_ref_img = skcolor.gray2rgb(draw_ref_img)
-    ref_slide_to_draw_sxy = np.array(draw_ref_img.shape[0:2][::-1])/ref_slide.slide_dimensions_wh[0]
+    ref_slide_to_draw_sxy = (
+        np.array(draw_ref_img.shape[0:2][::-1]) / ref_slide.slide_dimensions_wh[0]
+    )
 
     updated_df_list = [None] * len(from_slides)
 
@@ -300,28 +349,38 @@ if __name__ == "__main__":
         pair_df = sample_df.loc[sample_df["name"] == src_slide.name]
         src_mpp = pair_df[["mpp_ihc_10X"]].values[0][0]
         src_xy_um = pair_df[["ihc_x", "ihc_y"]].values
-        src_xy_px = src_xy_um/src_mpp
+        src_xy_px = src_xy_um / src_mpp
         warped_xy_px = src_slide.warp_xy_from_to(src_xy_px, ref_slide)
 
         # Convert from pixel to um in H&E
         dst_mpp = pair_df[["mpp_he_10X"]].values[0][0]
-        warped_xy_um = warped_xy_px*dst_mpp
+        warped_xy_um = warped_xy_px * dst_mpp
         pair_df[["he_x", "he_y"]] = warped_xy_um
         updated_df_list[i] = pair_df
 
         # Estimate error using same metrics as acrobat, but using features
-        moving_feature_xy_warped = src_slide.warp_xy_from_to(src_slide.xy_matched_to_prev,
-                                                             ref_slide,
-                                                             src_pt_level=src_slide.processed_img_shape_rc
-                                                             )
+        moving_feature_xy_warped = src_slide.warp_xy_from_to(
+            src_slide.xy_matched_to_prev,
+            ref_slide,
+            src_pt_level=src_slide.processed_img_shape_rc,
+        )
 
-        moving_feature_xy_warped[:, 0] = np.clip(moving_feature_xy_warped[:, 0], 0, ref_wh[0])
-        moving_feature_xy_warped[:, 1] = np.clip(moving_feature_xy_warped[:, 1], 0, ref_wh[1])
+        moving_feature_xy_warped[:, 0] = np.clip(
+            moving_feature_xy_warped[:, 0], 0, ref_wh[0]
+        )
+        moving_feature_xy_warped[:, 1] = np.clip(
+            moving_feature_xy_warped[:, 1], 0, ref_wh[1]
+        )
 
-        ref_sxy = np.array(ref_slide.slide_dimensions_wh[0])/np.array(ref_slide.processed_img_shape_rc[::-1])
-        ref_in_slide_xy = src_slide.xy_in_prev*ref_sxy
+        ref_sxy = np.array(ref_slide.slide_dimensions_wh[0]) / np.array(
+            ref_slide.processed_img_shape_rc[::-1]
+        )
+        ref_in_slide_xy = src_slide.xy_in_prev * ref_sxy
 
-        d = warp_tools.calc_d(ref_in_slide_xy*ref_slide.resolution, moving_feature_xy_warped*src_slide.resolution)
+        d = warp_tools.calc_d(
+            ref_in_slide_xy * ref_slide.resolution,
+            moving_feature_xy_warped * src_slide.resolution,
+        )
         feature_p90 = np.percentile(d, q=90)
         feature_mean_d = np.mean(d)
         pair_df["p90"] = feature_p90
@@ -330,22 +389,27 @@ if __name__ == "__main__":
 
         # Draw landmarks on both. Source (IHC) on left, target (H&E) on right
         src_reg_img = src_slide.warp_img(src_slide.processed_img)
-        draw_src_s = np.min(DRAW_IMG_SIZE/np.array(src_reg_img.shape[0:2]))
+        draw_src_s = np.min(DRAW_IMG_SIZE / np.array(src_reg_img.shape[0:2]))
         draw_src_img = warp_tools.rescale_img(src_reg_img, draw_src_s)
         draw_src_img = skcolor.gray2rgb(draw_src_img)
 
         combo_img = np.hstack([draw_src_img, draw_ref_img])
         c_shift = draw_src_img.shape[1]
 
-        src_slide_to_draw_sxy = (np.array(draw_src_img.shape[0:2][::-1])/np.array(ref_slide.slide_dimensions_wh[0]))
+        src_slide_to_draw_sxy = np.array(draw_src_img.shape[0:2][::-1]) / np.array(
+            ref_slide.slide_dimensions_wh[0]
+        )
         warped_in_src_xy = src_slide.warp_xy(src_xy_px)
 
-        unwarped_src_sxy = np.array(src_slide.processed_img.shape[0:2][::-1])/src_slide.slide_dimensions_wh[0]
-        unwarped_draw_rc = (src_xy_px*unwarped_src_sxy)[:, ::-1]
+        unwarped_src_sxy = (
+            np.array(src_slide.processed_img.shape[0:2][::-1])
+            / src_slide.slide_dimensions_wh[0]
+        )
+        unwarped_draw_rc = (src_xy_px * unwarped_src_sxy)[:, ::-1]
         unwarped_draw_img = skcolor.gray2rgb(src_slide.processed_img)
 
-        src_draw_rc = (warped_in_src_xy*src_slide_to_draw_sxy)[:, ::-1]
-        ref_draw_rc = (warped_xy_px*ref_slide_to_draw_sxy)[:, ::-1]
+        src_draw_rc = (warped_in_src_xy * src_slide_to_draw_sxy)[:, ::-1]
+        ref_draw_rc = (warped_xy_px * ref_slide_to_draw_sxy)[:, ::-1]
         for pt_idx, src_pt in enumerate(src_draw_rc):
             ref_pt = ref_draw_rc[pt_idx]
             ref_pt[1] += c_shift
@@ -355,18 +419,22 @@ if __name__ == "__main__":
             src_circ = draw.disk(src_pt, draw_rad, shape=combo_img.shape)
             target_circ = draw.disk(ref_pt, draw_rad, shape=combo_img.shape)
             pt_line = list(draw.line(*src_pt.astype(int), *ref_pt.astype(int)))
-            pt_line[0] = np.clip(pt_line[0], 0, combo_img.shape[0]-1)
-            pt_line[1] = np.clip(pt_line[1], 0, combo_img.shape[1]-1)
+            pt_line[0] = np.clip(pt_line[0], 0, combo_img.shape[0] - 1)
+            pt_line[1] = np.clip(pt_line[1], 0, combo_img.shape[1] - 1)
             pt_line = tuple(pt_line)
 
             combo_img[pt_line] = clr
             combo_img[src_circ] = clr
             combo_img[target_circ] = clr
 
-            unwarped_circ = draw.disk(unwarped_draw_rc[pt_idx], draw_rad, shape=unwarped_draw_img.shape)
+            unwarped_circ = draw.disk(
+                unwarped_draw_rc[pt_idx], draw_rad, shape=unwarped_draw_img.shape
+            )
             unwarped_draw_img[unwarped_circ] = clr
 
-        pt_img_f_out = os.path.join(plot_dir, f"{registrar.name}_{src_slide.name}_to_{ref_slide.name}.png")
+        pt_img_f_out = os.path.join(
+            plot_dir, f"{registrar.name}_{src_slide.name}_to_{ref_slide.name}.png"
+        )
         warp_tools.save_img(pt_img_f_out, combo_img)
 
     # Save the results

@@ -32,7 +32,6 @@ image's dimensions.
 
 """
 
-
 import os
 import pickle
 import numpy as np
@@ -56,12 +55,12 @@ pt_source_slide = registrar.get_slide(pt_source_img_f)
 
 # Convert coordinates to pixel units
 um_per_px = pt_source_slide.reader.scale_physical_size(COORD_LEVEL)[0:2]
-bbox_xy_px = bbox_xy_um/np.array(um_per_px)
+bbox_xy_px = bbox_xy_um / np.array(um_per_px)
 
 # Warp coordinates to position in registered slides
-bbox_xy_in_registered_img = pt_source_slide.warp_xy(bbox_xy_px,
-                                                    slide_level=COORD_LEVEL,
-                                                    pt_level=COORD_LEVEL)
+bbox_xy_in_registered_img = pt_source_slide.warp_xy(
+    bbox_xy_px, slide_level=COORD_LEVEL, pt_level=COORD_LEVEL
+)
 
 bbox_xywh_in_registered_img = warp_tools.xy2bbox(bbox_xy_in_registered_img)
 bbox_xywh_in_registered_img = np.round(bbox_xywh_in_registered_img).astype(int)
@@ -81,7 +80,7 @@ for i, slide in enumerate(registrar.slide_dict.values()):
     ax[i].set_title(slide.name)
     ax[i].set_axis_off()
 
-fig.delaxes(ax[5]) # Only 5 images, so remove 6th subplot
+fig.delaxes(ax[5])  # Only 5 images, so remove 6th subplot
 out_f = os.path.join(dst_dir, f"{registrar.name}_roi.png")
 plt.tight_layout()
 plt.savefig(out_f)

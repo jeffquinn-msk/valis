@@ -55,4 +55,5 @@ dev = [
     "sphinx>=7.4.7",
     "sphinx-rtd-theme>=3.0.2",
     "twine>=6.1.0",
+    "black>=24.0.0",
 ]

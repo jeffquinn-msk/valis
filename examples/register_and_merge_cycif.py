@@ -79,14 +79,15 @@ def cnames_from_filename(src_f):
     return ["DAPI"] + f.split(" ")
 
 
-channel_name_dict = {f: cnames_from_filename(f) for
-                     f in registrar.original_img_list}
+channel_name_dict = {f: cnames_from_filename(f) for f in registrar.original_img_list}
 
-dst_f = os.path.join("./expected_results/registered_slides", registrar.name, registrar.name + ".ome.tiff")
+dst_f = os.path.join(
+    "./expected_results/registered_slides", registrar.name, registrar.name + ".ome.tiff"
+)
 start = time.time()
-merged_img, channel_names, ome_xml = registrar.warp_and_merge_slides(dst_f,
-                                      channel_name_dict=channel_name_dict,
-                                      drop_duplicates=True)
+merged_img, channel_names, ome_xml = registrar.warp_and_merge_slides(
+    dst_f, channel_name_dict=channel_name_dict, drop_duplicates=True
+)
 stop = time.time()
 elapsed = stop - start
 

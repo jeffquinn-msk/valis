@@ -1,5 +1,4 @@
-"""Functions and classes to match and filter image features
-"""
+"""Functions and classes to match and filter image features"""
 
 import numpy as np
 import cv2
@@ -14,7 +13,8 @@ from . import warp_tools, valtils, feature_detectors
 from .superglue_models import matching, superglue, superpoint
 
 AMBIGUOUS_METRICS = set(metrics.pairwise._VALID_METRICS).intersection(
-    metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS.keys())
+    metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS.keys()
+)
 """set:
     Metrics found in both the valid metrics ang kernel methods in
     sklearn.metrics.pairwise. Issue is that metrics are distances,
@@ -137,8 +137,9 @@ def filter_matches_ransac(kp1_xy, kp2_xy, ransac_val=DEFAULT_RANSAC):
     return filtered_src_points, filtered_dst_points, good_idx
 
 
-def filter_matches_gms(kp1_xy, kp2_xy, feature_d, img1_shape, img2_shape,
-                       scaling, thresholdFactor=6.0):
+def filter_matches_gms(
+    kp1_xy, kp2_xy, feature_d, img1_shape, img2_shape, scaling, thresholdFactor=6.0
+):
     """Filter matches using GMS (Grid-based Motion Statistics) [1]
 
     This filtering method does best when there are a large number of features,
@@ -198,9 +199,20 @@ def filter_matches_gms(kp1_xy, kp2_xy, feature_d, img1_shape, img2_shape,
 
     kp1 = cv2.KeyPoint_convert(kp1_xy.tolist())
     kp2 = cv2.KeyPoint_convert(kp2_xy.tolist())
-    matches = [cv2.DMatch(_queryIdx=i, _trainIdx=i, _imgIdx=0, _distance=feature_d[i]) for i in range(len(kp1_xy))]
-    gms_matches = cv2.xfeatures2d.matchGMS(img1_shape, img2_shape, kp1, kp2, matches, withRotation=True,
-                                           withScale=scaling, thresholdFactor=thresholdFactor)
+    matches = [
+        cv2.DMatch(_queryIdx=i, _trainIdx=i, _imgIdx=0, _distance=feature_d[i])
+        for i in range(len(kp1_xy))
+    ]
+    gms_matches = cv2.xfeatures2d.matchGMS(
+        img1_shape,
+        img2_shape,
+        kp1,
+        kp2,
+        matches,
+        withRotation=True,
+        withScale=scaling,
+        thresholdFactor=thresholdFactor,
+    )
     good_idx = np.array([d.queryIdx for d in gms_matches])
 
     if len(good_idx) == 0:
@@ -210,7 +222,11 @@ def filter_matches_gms(kp1_xy, kp2_xy, feature_d, img1_shape, img2_shape,
         filtered_src_points = kp1_xy[good_idx, :]
         filtered_dst_points = kp2_xy[good_idx, :]
 
-    return np.array(filtered_src_points), np.array(filtered_dst_points), np.array(good_idx)
+    return (
+        np.array(filtered_src_points),
+        np.array(filtered_dst_points),
+        np.array(good_idx),
+    )
 
 
 def filter_matches_tukey(src_xy, dst_xy, tform=transform.SimilarityTransform()):
@@ -243,21 +259,21 @@ def filter_matches_tukey(src_xy, dst_xy, tform=transform.SimilarityTransform()):
     M = tform.params
 
     warped_xy = warp_tools.warp_xy(src_xy, M)
-    d = warp_tools.calc_d(warped_xy,  dst_xy)
+    d = warp_tools.calc_d(warped_xy, dst_xy)
 
     q1 = np.quantile(d, 0.25)
     q3 = np.quantile(d, 0.75)
-    iqr = q3-q1
-    inner_fence = 1.5*iqr
-    outer_fence = 3*iqr
+    iqr = q3 - q1
+    inner_fence = 1.5 * iqr
+    outer_fence = 3 * iqr
 
     # inner fence lower and upper end
-    inner_fence_le = q1-inner_fence
-    inner_fence_ue = q3+inner_fence
+    inner_fence_le = q1 - inner_fence
+    inner_fence_ue = q3 + inner_fence
 
     # outer fence lower and upper end
-    outer_fence_le = q1-outer_fence
-    outer_fence_ue = q3+outer_fence
+    outer_fence_le = q1 - outer_fence
+    outer_fence_ue = q3 + outer_fence
 
     outliers_prob = []
     outliers_poss = []
@@ -280,8 +296,7 @@ def filter_matches_tukey(src_xy, dst_xy, tform=transform.SimilarityTransform()):
     return src_xy_inlier, dst_xy_inlier, inliers_prob
 
 
-def filter_matches(kp1_xy, kp2_xy, method=DEFAULT_MATCH_FILTER,
-                   filtering_kwargs=None):
+def filter_matches(kp1_xy, kp2_xy, method=DEFAULT_MATCH_FILTER, filtering_kwargs=None):
     """Use RANSAC or GMS to remove poor matches
 
     Parameters
@@ -329,14 +344,24 @@ def filter_matches(kp1_xy, kp2_xy, method=DEFAULT_MATCH_FILTER,
     filtered_src_points, filtered_dst_points, good_idx = filter_fxn(**all_matching_args)
 
     # Do additional filtering to remove other outliers that may have been missed by RANSAC
-    filtered_src_points, filtered_dst_points, good_idx = filter_matches_tukey(filtered_src_points, filtered_dst_points)
+    filtered_src_points, filtered_dst_points, good_idx = filter_matches_tukey(
+        filtered_src_points, filtered_dst_points
+    )
 
     return filtered_src_points, filtered_dst_points, good_idx
 
 
-def match_descriptors(descriptors1, descriptors2, metric=None,
-                      metric_type=None, p=2, max_distance=np.inf,
-                      cross_check=True, max_ratio=1.0, metric_kwargs=None):
+def match_descriptors(
+    descriptors1,
+    descriptors2,
+    metric=None,
+    metric_type=None,
+    p=2,
+    max_distance=np.inf,
+    cross_check=True,
+    max_ratio=1.0,
+    metric_kwargs=None,
+):
     """Brute-force matching of descriptors
 
     For each descriptor in the first set this matcher finds the closest
@@ -407,34 +432,50 @@ def match_descriptors(descriptors1, descriptors2, metric=None,
 
     if metric is None:
         if np.issubdtype(descriptors1.dtype, np.bool_):
-            metric = 'hamming'
+            metric = "hamming"
         else:
-            metric = 'euclidean'
+            metric = "euclidean"
 
     if metric_kwargs is None:
         metric_kwargs = {}
 
-    if metric == 'minkowski':
-        metric_kwargs['p'] = p
+    if metric == "minkowski":
+        metric_kwargs["p"] = p
 
     if metric in AMBIGUOUS_METRICS:
-        print("metric", metric, "could be a distance in pairwise_distances() or similarity in pairwise_kernels().",
-              "Please set metric_type. Otherwise, metric is assumed to be a distance")
+        print(
+            "metric",
+            metric,
+            "could be a distance in pairwise_distances() or similarity in pairwise_kernels().",
+            "Please set metric_type. Otherwise, metric is assumed to be a distance",
+        )
     if callable(metric) or metric in metrics.pairwise._VALID_METRICS:
 
-        distances = metrics.pairwise_distances(descriptors1, descriptors2, metric=metric, **metric_kwargs)
+        distances = metrics.pairwise_distances(
+            descriptors1, descriptors2, metric=metric, **metric_kwargs
+        )
         if callable(metric) and metric_type is None:
-            print(Warning("Metric passed as a function or class, but the metric type not provided",
-                          "Assuming the metric function returns a distance. If a similarity is actually returned",
-                          "set metric_type = 'similiarity'. If metric is a distance, set metric_type = 'distance'"
-                          "to avoid this message"))
+            print(
+                Warning(
+                    "Metric passed as a function or class, but the metric type not provided",
+                    "Assuming the metric function returns a distance. If a similarity is actually returned",
+                    "set metric_type = 'similiarity'. If metric is a distance, set metric_type = 'distance'"
+                    "to avoid this message",
+                )
+            )
 
             metric_type = "distance"
         if metric_type == "similarity":
-            distances = convert_similarity_to_distance(distances, n_features=descriptors1.shape[1])
+            distances = convert_similarity_to_distance(
+                distances, n_features=descriptors1.shape[1]
+            )
     if metric in metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS:
-        similarities = pairwise_kernels(descriptors1, descriptors2, metric=metric, **metric_kwargs)
-        distances = convert_similarity_to_distance(similarities, n_features=descriptors1.shape[1])
+        similarities = pairwise_kernels(
+            descriptors1, descriptors2, metric=metric, **metric_kwargs
+        )
+        distances = convert_similarity_to_distance(
+            similarities, n_features=descriptors1.shape[1]
+        )
 
     if callable(metric):
         metric_name = metric.__name__
@@ -460,23 +501,40 @@ def match_descriptors(descriptors1, descriptors2, metric=None,
         distances[indices1, indices2] = np.inf
         second_best_indices2 = np.argmin(distances[indices1], axis=1)
         second_best_distances = distances[indices1, second_best_indices2]
-        second_best_distances[second_best_distances == 0] \
-            = np.finfo(np.double).eps
+        second_best_distances[second_best_distances == 0] = np.finfo(np.double).eps
         ratio = best_distances / second_best_distances
         mask = ratio < max_ratio
         indices1 = indices1[mask]
         indices2 = indices2[mask]
 
-        return np.column_stack((indices1, indices2)), best_distances[indices1, indices2], metric, metric_type
+        return (
+            np.column_stack((indices1, indices2)),
+            best_distances[indices1, indices2],
+            metric,
+            metric_type,
+        )
     else:
 
-        return np.column_stack((indices1, indices2)), distances[indices1, indices2], metric_name, metric_type
+        return (
+            np.column_stack((indices1, indices2)),
+            distances[indices1, indices2],
+            metric_name,
+            metric_type,
+        )
 
 
-def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
-                      metric_type=None, metric_kwargs=None, max_ratio=1.0,
-                      filter_method=DEFAULT_MATCH_FILTER,
-                      filtering_kwargs=None):
+def match_desc_and_kp(
+    desc1,
+    kp1_xy,
+    desc2,
+    kp2_xy,
+    metric=None,
+    metric_type=None,
+    metric_kwargs=None,
+    max_ratio=1.0,
+    filter_method=DEFAULT_MATCH_FILTER,
+    filtering_kwargs=None,
+):
     """Match the descriptors of image 1 with those of image 2 and remove outliers.
 
     Metric can be a string to use a distance in scipy.distnce.cdist(),
@@ -564,12 +622,15 @@ def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
     else:
         cross_check = True
 
-    matches, match_distances, metric_name, metric_type = \
-        match_descriptors(desc1, desc2, metric=metric,
-                          metric_type=metric_type,
-                          metric_kwargs=metric_kwargs,
-                          max_ratio=max_ratio,
-                          cross_check=cross_check)
+    matches, match_distances, metric_name, metric_type = match_descriptors(
+        desc1,
+        desc2,
+        metric=metric,
+        metric_type=metric_type,
+        metric_kwargs=metric_kwargs,
+        max_ratio=max_ratio,
+        cross_check=cross_check,
+    )
 
     desc1_match_idx = matches[:, 0]
     matched_kp1_xy = kp1_xy[desc1_match_idx, :]
@@ -580,27 +641,47 @@ def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
     matched_desc2 = desc2[desc2_match_idx, :]
 
     mean_unfiltered_distance = np.mean(match_distances)
-    mean_unfiltered_similarity = np.mean(convert_distance_to_similarity(match_distances, n_features=desc1.shape[1]))
+    mean_unfiltered_similarity = np.mean(
+        convert_distance_to_similarity(match_distances, n_features=desc1.shape[1])
+    )
 
-    match_info12 = MatchInfo(matched_kp1_xy=matched_kp1_xy, matched_desc1=matched_desc1,
-                             matches12=desc1_match_idx, matched_kp2_xy=matched_kp2_xy,
-                             matched_desc2=matched_desc2, matches21=desc2_match_idx,
-                             match_distances=match_distances, distance=mean_unfiltered_distance,
-                             similarity=mean_unfiltered_similarity, metric_name=metric_name,
-                             metric_type=metric_type)
+    match_info12 = MatchInfo(
+        matched_kp1_xy=matched_kp1_xy,
+        matched_desc1=matched_desc1,
+        matches12=desc1_match_idx,
+        matched_kp2_xy=matched_kp2_xy,
+        matched_desc2=matched_desc2,
+        matches21=desc2_match_idx,
+        match_distances=match_distances,
+        distance=mean_unfiltered_distance,
+        similarity=mean_unfiltered_similarity,
+        metric_name=metric_name,
+        metric_type=metric_type,
+    )
 
-    match_info21 = MatchInfo(matched_kp1_xy=matched_kp2_xy, matched_desc1=matched_desc2,
-                             matches12=desc2_match_idx, matched_kp2_xy=matched_kp1_xy,
-                             matched_desc2=matched_desc1, matches21=desc1_match_idx,
-                             match_distances=match_distances, distance=mean_unfiltered_distance,
-                             similarity=mean_unfiltered_similarity, metric_name=metric_name,
-                             metric_type=metric_type)
+    match_info21 = MatchInfo(
+        matched_kp1_xy=matched_kp2_xy,
+        matched_desc1=matched_desc2,
+        matches12=desc2_match_idx,
+        matched_kp2_xy=matched_kp1_xy,
+        matched_desc2=matched_desc1,
+        matches21=desc1_match_idx,
+        match_distances=match_distances,
+        distance=mean_unfiltered_distance,
+        similarity=mean_unfiltered_similarity,
+        metric_name=metric_name,
+        metric_type=metric_type,
+    )
 
     # Filter matches #
     all_filtering_kwargs = {"kp1_xy": matched_kp1_xy, "kp2_xy": matched_kp2_xy}
     if filtering_kwargs is None:
         if filter_method != RANSAC_NAME:
-            print(Warning(f"filtering_kwargs not provided for {filter_method} match filtering. Will use RANSAC instead"))
+            print(
+                Warning(
+                    f"filtering_kwargs not provided for {filter_method} match filtering. Will use RANSAC instead"
+                )
+            )
             filter_method = RANSAC_NAME
             all_filtering_kwargs.update({"ransac_val": DEFAULT_RANSAC})
         else:
@@ -615,8 +696,9 @@ def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
 
             all_filtering_kwargs.update({"feature_d": match_distances})
 
-    filtered_matched_kp1_xy, filtered_matched_kp2_xy, good_matches_idx = \
-        filter_matches(matched_kp1_xy, matched_kp2_xy, filter_method, all_filtering_kwargs)
+    filtered_matched_kp1_xy, filtered_matched_kp2_xy, good_matches_idx = filter_matches(
+        matched_kp1_xy, matched_kp2_xy, filter_method, all_filtering_kwargs
+    )
 
     if len(good_matches_idx) > 0:
         filterd_match_distances = match_distances[good_matches_idx]
@@ -627,9 +709,11 @@ def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
         good_matches21 = desc2_match_idx[good_matches_idx]
 
         mean_filtered_distance = np.mean(filterd_match_distances)
-        mean_filtered_similarity = \
-            np.mean(convert_distance_to_similarity(filterd_match_distances,
-                                                   n_features=desc1.shape[1]))
+        mean_filtered_similarity = np.mean(
+            convert_distance_to_similarity(
+                filterd_match_distances, n_features=desc1.shape[1]
+            )
+        )
     else:
         filterd_match_distances = []
         filterd_matched_desc1 = []
@@ -642,19 +726,33 @@ def match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy, metric=None,
         mean_filtered_similarity = 0
 
     # Record filtered matches
-    filtered_match_info12 = MatchInfo(matched_kp1_xy=filtered_matched_kp1_xy, matched_desc1=filterd_matched_desc1,
-                                      matches12=good_matches12, matched_kp2_xy=filtered_matched_kp2_xy,
-                                      matched_desc2=filterd_matched_desc2, matches21=good_matches21,
-                                      match_distances=filterd_match_distances, distance=mean_filtered_distance,
-                                      similarity=mean_filtered_similarity, metric_name=metric_name,
-                                      metric_type=metric_type)
+    filtered_match_info12 = MatchInfo(
+        matched_kp1_xy=filtered_matched_kp1_xy,
+        matched_desc1=filterd_matched_desc1,
+        matches12=good_matches12,
+        matched_kp2_xy=filtered_matched_kp2_xy,
+        matched_desc2=filterd_matched_desc2,
+        matches21=good_matches21,
+        match_distances=filterd_match_distances,
+        distance=mean_filtered_distance,
+        similarity=mean_filtered_similarity,
+        metric_name=metric_name,
+        metric_type=metric_type,
+    )
 
-    filtered_match_info21 = MatchInfo(matched_kp1_xy=filtered_matched_kp2_xy, matched_desc1=filterd_matched_desc2,
-                                      matches12=good_matches21, matched_kp2_xy=filtered_matched_kp1_xy,
-                                      matched_desc2=filterd_matched_desc1, matches21=good_matches12,
-                                      match_distances=filterd_match_distances, distance=mean_filtered_distance,
-                                      similarity=mean_filtered_similarity, metric_name=metric_name,
-                                      metric_type=metric_type)
+    filtered_match_info21 = MatchInfo(
+        matched_kp1_xy=filtered_matched_kp2_xy,
+        matched_desc1=filterd_matched_desc2,
+        matches12=good_matches21,
+        matched_kp2_xy=filtered_matched_kp1_xy,
+        matched_desc2=filterd_matched_desc1,
+        matches21=good_matches12,
+        match_distances=filterd_match_distances,
+        distance=mean_filtered_distance,
+        similarity=mean_filtered_similarity,
+        metric_name=metric_name,
+        metric_type=metric_type,
+    )
 
     return match_info12, filtered_match_info12, match_info21, filtered_match_info21
 
@@ -665,13 +763,22 @@ class MatchInfo(object):
     All attributes are all set as parameters during initialization
     """
 
-    def __init__(self,
-                 matched_kp1_xy, matched_desc1, matches12,
-                 matched_kp2_xy, matched_desc2, matches21,
-                 match_distances, distance, similarity,
-                 metric_name, metric_type,
-                 img1_name=None, img2_name=None):
-
+    def __init__(
+        self,
+        matched_kp1_xy,
+        matched_desc1,
+        matches12,
+        matched_kp2_xy,
+        matched_desc2,
+        matches21,
+        match_distances,
+        distance,
+        similarity,
+        metric_name,
+        metric_type,
+        img1_name=None,
+        img2_name=None,
+    ):
         """Stores information about matches and features
 
         Parameters
@@ -787,9 +894,16 @@ class Matcher(object):
 
     """
 
-    def __init__(self, metric=None, metric_type=None, metric_kwargs=None,
-                 match_filter_method=DEFAULT_MATCH_FILTER, ransac_thresh=DEFAULT_RANSAC,
-                 gms_threshold=15, scaling=False):
+    def __init__(
+        self,
+        metric=None,
+        metric_type=None,
+        metric_kwargs=None,
+        match_filter_method=DEFAULT_MATCH_FILTER,
+        ransac_thresh=DEFAULT_RANSAC,
+        gms_threshold=15,
+        scaling=False,
+    ):
         """
         Parameters
         ----------
@@ -846,8 +960,16 @@ class Matcher(object):
         self.metric_kwargs = metric_kwargs
         self.match_filter_method = match_filter_method
 
-    def match_images(self, desc1, kp1_xy, desc2, kp2_xy,
-                     additional_filtering_kwargs=None, *args, **kwargs):
+    def match_images(
+        self,
+        desc1,
+        kp1_xy,
+        desc2,
+        kp2_xy,
+        additional_filtering_kwargs=None,
+        *args,
+        **kwargs,
+    ):
         """Match the descriptors of image 1 with those of image 2,
         Outliers removed using match_filter_method. Metric can be a string
         to use a distance in scipy.distnce.cdist(), or a custom distance
@@ -905,13 +1027,18 @@ class Matcher(object):
             if additional_filtering_kwargs is not None:
                 # At this point arguments need to include: img1_shape, img2_shape #
                 filtering_kwargs = additional_filtering_kwargs.copy()
-                filtering_kwargs.update({"scaling": self.scaling,
-                                         "thresholdFactor": self.gms_threshold})
+                filtering_kwargs.update(
+                    {"scaling": self.scaling, "thresholdFactor": self.gms_threshold}
+                )
             else:
-                print(Warning(f"Selected {self.match_filter_method},\
+                print(
+                    Warning(
+                        f"Selected {self.match_filter_method},\
                               but did not provide argument\
                               additional_filtering_kwargs.\
-                              Defaulting to RANSAC"))
+                              Defaulting to RANSAC"
+                    )
+                )
 
                 self.match_filter_method = RANSAC_NAME
                 filtering_kwargs = {"ransac_val": self.ransac}
@@ -920,18 +1047,29 @@ class Matcher(object):
             filtering_kwargs = {"ransac_val": self.ransac}
 
         else:
-            print(Warning(f"Dont know {self.match_filter_method}.\
-                Defaulting to RANSAC"))
+            print(
+                Warning(
+                    f"Dont know {self.match_filter_method}.\
+                Defaulting to RANSAC"
+                )
+            )
 
             self.match_filter_method = RANSAC_NAME
             filtering_kwargs = {"ransac_val": self.ransac}
 
-        match_info12, filtered_match_info12, match_info21, filtered_match_info21 = \
-            match_desc_and_kp(desc1, kp1_xy, desc2, kp2_xy,
-                              metric=self.metric, metric_type=self.metric_type,
-                              metric_kwargs=self.metric_kwargs,
-                              filter_method=self.match_filter_method,
-                              filtering_kwargs=filtering_kwargs)
+        match_info12, filtered_match_info12, match_info21, filtered_match_info21 = (
+            match_desc_and_kp(
+                desc1,
+                kp1_xy,
+                desc2,
+                kp2_xy,
+                metric=self.metric,
+                metric_type=self.metric_type,
+                metric_kwargs=self.metric_kwargs,
+                filter_method=self.match_filter_method,
+                filtering_kwargs=filtering_kwargs,
+            )
+        )
 
         if self.metric_name is None:
             self.metric_name = match_info12.metric_name
@@ -940,12 +1078,22 @@ class Matcher(object):
 
 
 class SuperPointAndGlue(Matcher):
-    def __init__(self, weights="indoor", keypoint_threshold=0.005, nms_radius=4,
-                 sinkhorn_iterations=100, match_threshold=0.2, force_cpu=False,
-                 metric=None, metric_type=None, metric_kwargs=None,
-                 match_filter_method=DEFAULT_MATCH_FILTER, ransac_thresh=DEFAULT_RANSAC,
-                 gms_threshold=15, scaling=False):
-
+    def __init__(
+        self,
+        weights="indoor",
+        keypoint_threshold=0.005,
+        nms_radius=4,
+        sinkhorn_iterations=100,
+        match_threshold=0.2,
+        force_cpu=False,
+        metric=None,
+        metric_type=None,
+        metric_kwargs=None,
+        match_filter_method=DEFAULT_MATCH_FILTER,
+        ransac_thresh=DEFAULT_RANSAC,
+        gms_threshold=15,
+        scaling=False,
+    ):
         """
         SuperPoint and SuperGlue
 
@@ -982,9 +1130,15 @@ class SuperPointAndGlue(Matcher):
 
 
         """
-        super().__init__(metric=metric, metric_type=metric_type, metric_kwargs=metric_kwargs,
-                 match_filter_method=match_filter_method, ransac_thresh=ransac_thresh,
-                 gms_threshold=gms_threshold, scaling=scaling)
+        super().__init__(
+            metric=metric,
+            metric_type=metric_type,
+            metric_kwargs=metric_kwargs,
+            match_filter_method=match_filter_method,
+            ransac_thresh=ransac_thresh,
+            gms_threshold=gms_threshold,
+            scaling=scaling,
+        )
 
         self.weights = weights
         self.keypoint_threshold = keypoint_threshold
@@ -996,31 +1150,31 @@ class SuperPointAndGlue(Matcher):
         self.matcher = "SuperGlue"
         self.metric_name = "SuperGlue"
         self.metric_type = "distance"
-        self.device = 'cuda' if torch.cuda.is_available() and not force_cpu else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() and not force_cpu else "cpu"
 
         self.config = {
-            'superpoint': {
-                'nms_radius': self.nms_radius,
-                'keypoint_threshold': self.keypoint_threshold,
-                'max_keypoints': feature_detectors.MAX_FEATURES
+            "superpoint": {
+                "nms_radius": self.nms_radius,
+                "keypoint_threshold": self.keypoint_threshold,
+                "max_keypoints": feature_detectors.MAX_FEATURES,
             },
-            'superglue': {
-                'weights': self.weights,
-                'sinkhorn_iterations': self.sinkhorn_iterations,
-                'match_threshold': self.match_threshold,
-            }
+            "superglue": {
+                "weights": self.weights,
+                "sinkhorn_iterations": self.sinkhorn_iterations,
+                "match_threshold": self.match_threshold,
+            },
         }
 
     def frame2tensor(self, img):
-        tensor = torch.from_numpy(img/255.).float()[None, None].to(self.device)
+        tensor = torch.from_numpy(img / 255.0).float()[None, None].to(self.device)
 
         return tensor
 
     def filter_indv_matches(self, sg_pred, img_id):
         img_id_str = str(img_id - 1)
-        kpts = sg_pred[f'keypoints{img_id_str}']
-        desc = sg_pred[f'descriptors{img_id_str}']
-        sg_matches = sg_pred[f'matches{img_id_str}']
+        kpts = sg_pred[f"keypoints{img_id_str}"]
+        desc = sg_pred[f"descriptors{img_id_str}"]
+        sg_matches = sg_pred[f"matches{img_id_str}"]
 
         valid = np.where(sg_matches > -1)[0]
         sg_filtered_kp = kpts[valid, :]
@@ -1028,17 +1182,47 @@ class SuperPointAndGlue(Matcher):
 
         return sg_filtered_kp, sg_filtered_desc, valid
 
-    def match_images(self, img1=None, desc1=None, kp1_xy=None, img2=None, desc2=None, kp2_xy=None, additional_filtering_kwargs=None):
+    def match_images(
+        self,
+        img1=None,
+        desc1=None,
+        kp1_xy=None,
+        img2=None,
+        desc2=None,
+        kp2_xy=None,
+        additional_filtering_kwargs=None,
+    ):
         if img1 is not None and img2 is not None:
-            return self._match_images(img1, img2, additional_filtering_kwargs=additional_filtering_kwargs)
+            return self._match_images(
+                img1, img2, additional_filtering_kwargs=additional_filtering_kwargs
+            )
         else:
-            return self._match_kp(desc1=desc1, kp1_xy=kp1_xy, desc2=desc2, kp2_xy=kp2_xy, additional_filtering_kwargs=additional_filtering_kwargs)
+            return self._match_kp(
+                desc1=desc1,
+                kp1_xy=kp1_xy,
+                desc2=desc2,
+                kp2_xy=kp2_xy,
+                additional_filtering_kwargs=additional_filtering_kwargs,
+            )
 
     def _match_kp(self, desc1, kp1_xy, desc2, kp2_xy, additional_filtering_kwargs=None):
-        return super().match_images(desc1=desc1, kp1_xy=kp1_xy, desc2=desc2, kp2_xy=kp2_xy, additional_filtering_kwargs=additional_filtering_kwargs)
+        return super().match_images(
+            desc1=desc1,
+            kp1_xy=kp1_xy,
+            desc2=desc2,
+            kp2_xy=kp2_xy,
+            additional_filtering_kwargs=additional_filtering_kwargs,
+        )
 
-
-    def _match_images(self, img1, img2, matcher_obj=None, additional_filtering_kwargs=None, *args, **kwargs):
+    def _match_images(
+        self,
+        img1,
+        img2,
+        matcher_obj=None,
+        additional_filtering_kwargs=None,
+        *args,
+        **kwargs,
+    ):
         """Detect, compute, and match images using SuperPoint and SuperGlue
 
         Returns
@@ -1070,88 +1254,118 @@ class SuperPointAndGlue(Matcher):
         with valtils.HiddenPrints():
             sg_matching = matching.Matching(self.config).eval().to(self.device)
 
-        sg_pred = sg_matching({'image0': inp1, 'image1': inp2})
+        sg_pred = sg_matching({"image0": inp1, "image1": inp2})
         sg_pred = {k: v[0].detach().numpy() for k, v in sg_pred.items()}
 
-        matches, conf = sg_pred['matches0'], sg_pred['matching_scores0']
+        matches, conf = sg_pred["matches0"], sg_pred["matching_scores0"]
 
         # Keep the matching keypoints and descriptors
         valid = matches > -1
         matches12 = np.where(valid)[0]
         matches21 = matches[valid]
 
-        kp1_pos_xy = sg_pred['keypoints0'][matches12, :]
-        desc1 = sg_pred['descriptors0'].T[matches12, :]
+        kp1_pos_xy = sg_pred["keypoints0"][matches12, :]
+        desc1 = sg_pred["descriptors0"].T[matches12, :]
 
-        kp2_pos_xy = sg_pred['keypoints1'][matches21, :]
-        desc2 = sg_pred['descriptors1'].T[matches21, :]
+        kp2_pos_xy = sg_pred["keypoints1"][matches21, :]
+        desc2 = sg_pred["descriptors1"].T[matches21, :]
 
         if matcher_obj is None:
             matcher_obj = Matcher()
 
         n_sg_matches = len(matches12)
         if matcher_obj.metric is None:
-            metric = 'euclidean'
+            metric = "euclidean"
         else:
             metric = matcher_obj.metric
 
-        if n_sg_matches < 4 or self.match_filter_method.lower() == SUPERGLUE_FILTER_NAME:
+        if (
+            n_sg_matches < 4
+            or self.match_filter_method.lower() == SUPERGLUE_FILTER_NAME
+        ):
 
             if n_sg_matches == 0:
                 match_d = np.inf
                 match_s = 0
                 match_distances = np.array([])
             else:
-                match_distances = metrics.pairwise_distances(desc1, desc2, metric=metric)
+                match_distances = metrics.pairwise_distances(
+                    desc1, desc2, metric=metric
+                )
                 match_d = np.mean(match_distances)
-                match_s = np.mean(convert_distance_to_similarity(match_distances, n_features=desc1.shape[1]))
+                match_s = np.mean(
+                    convert_distance_to_similarity(
+                        match_distances, n_features=desc1.shape[1]
+                    )
+                )
 
+            match_info12 = MatchInfo(
+                matched_kp1_xy=kp1_pos_xy,
+                matched_desc1=desc1,
+                matches12=matches12,
+                matched_kp2_xy=kp2_pos_xy,
+                matched_desc2=desc2,
+                matches21=matches21,
+                match_distances=match_distances,
+                distance=match_d,
+                similarity=match_s,
+                metric_name="SuperGlue",
+                metric_type="distance",
+            )
 
-            match_info12 = MatchInfo(matched_kp1_xy=kp1_pos_xy,
-                                      matched_desc1=desc1,
-                                      matches12=matches12,
-                                      matched_kp2_xy=kp2_pos_xy,
-                                      matched_desc2=desc2,
-                                      matches21=matches21,
-                                      match_distances=match_distances,
-                                      distance=match_d,
-                                      similarity=match_s,
-                                      metric_name="SuperGlue",
-                                      metric_type="distance")
-
-            match_info21 = MatchInfo(matched_kp1_xy=kp2_pos_xy,
-                                      matched_desc1=desc2,
-                                      matches12=matches21,
-                                      matched_kp2_xy=kp1_pos_xy,
-                                      matched_desc2=desc1,
-                                      matches21=matches12,
-                                      match_distances=match_distances,
-                                      distance=match_d,
-                                      similarity=match_s,
-                                      metric_name="SuperGlue",
-                                      metric_type="distance")
+            match_info21 = MatchInfo(
+                matched_kp1_xy=kp2_pos_xy,
+                matched_desc1=desc2,
+                matches12=matches21,
+                matched_kp2_xy=kp1_pos_xy,
+                matched_desc2=desc1,
+                matches21=matches12,
+                match_distances=match_distances,
+                distance=match_d,
+                similarity=match_s,
+                metric_name="SuperGlue",
+                metric_type="distance",
+            )
 
             unfiltered_match_info12 = deepcopy(match_info12)
             filtered_match_info12 = deepcopy(match_info12)
             unfiltered_match_info21 = deepcopy(match_info21)
             filtered_match_info21 = deepcopy(match_info21)
         else:
-            unfiltered_match_info12, filtered_match_info12, \
-                unfiltered_match_info21, filtered_match_info21 = \
-                matcher_obj.match_images(desc1, kp1_pos_xy,
-                                         desc2, kp2_pos_xy,
-                                         additional_filtering_kwargs)
+            (
+                unfiltered_match_info12,
+                filtered_match_info12,
+                unfiltered_match_info21,
+                filtered_match_info21,
+            ) = matcher_obj.match_images(
+                desc1, kp1_pos_xy, desc2, kp2_pos_xy, additional_filtering_kwargs
+            )
 
-        return unfiltered_match_info12, filtered_match_info12, unfiltered_match_info21, filtered_match_info21
+        return (
+            unfiltered_match_info12,
+            filtered_match_info12,
+            unfiltered_match_info21,
+            filtered_match_info21,
+        )
 
 
 class SuperGlueMatcher(Matcher):
-    def __init__(self, weights="indoor", keypoint_threshold=0.005, nms_radius=4,
-                 sinkhorn_iterations=100, match_threshold=0.2, force_cpu=False,
-                 metric=None, metric_type=None, metric_kwargs=None,
-                 match_filter_method=DEFAULT_MATCH_FILTER, ransac_thresh=DEFAULT_RANSAC,
-                 gms_threshold=15, scaling=False):
-
+    def __init__(
+        self,
+        weights="indoor",
+        keypoint_threshold=0.005,
+        nms_radius=4,
+        sinkhorn_iterations=100,
+        match_threshold=0.2,
+        force_cpu=False,
+        metric=None,
+        metric_type=None,
+        metric_kwargs=None,
+        match_filter_method=DEFAULT_MATCH_FILTER,
+        ransac_thresh=DEFAULT_RANSAC,
+        gms_threshold=15,
+        scaling=False,
+    ):
         """
         SuperPoint and SuperGlue
 
@@ -1188,9 +1402,15 @@ class SuperGlueMatcher(Matcher):
 
 
         """
-        super().__init__(metric=metric, metric_type=metric_type, metric_kwargs=metric_kwargs,
-                 match_filter_method=match_filter_method, ransac_thresh=ransac_thresh,
-                 gms_threshold=gms_threshold, scaling=scaling)
+        super().__init__(
+            metric=metric,
+            metric_type=metric_type,
+            metric_kwargs=metric_kwargs,
+            match_filter_method=match_filter_method,
+            ransac_thresh=ransac_thresh,
+            gms_threshold=gms_threshold,
+            scaling=scaling,
+        )
 
         self.weights = weights
         self.keypoint_threshold = keypoint_threshold
@@ -1202,35 +1422,63 @@ class SuperGlueMatcher(Matcher):
         self.matcher = "SuperGlue"
         self.metric_name = "SuperGlue"
         self.metric_type = "distance"
-        self.device = 'cuda' if torch.cuda.is_available() and not force_cpu else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() and not force_cpu else "cpu"
 
         self.config = {
-            'superpoint': {
-                'nms_radius': self.nms_radius,
-                'keypoint_threshold': self.keypoint_threshold,
-                'max_keypoints': feature_detectors.MAX_FEATURES
+            "superpoint": {
+                "nms_radius": self.nms_radius,
+                "keypoint_threshold": self.keypoint_threshold,
+                "max_keypoints": feature_detectors.MAX_FEATURES,
             },
-            'superglue': {
-                'weights': self.weights,
-                'sinkhorn_iterations': self.sinkhorn_iterations,
-                'match_threshold': self.match_threshold,
-            }
+            "superglue": {
+                "weights": self.weights,
+                "sinkhorn_iterations": self.sinkhorn_iterations,
+                "match_threshold": self.match_threshold,
+            },
         }
 
     def frame2tensor(self, img):
-        tensor = torch.from_numpy(img/255.).float()[None, None].to(self.device)
+        tensor = torch.from_numpy(img / 255.0).float()[None, None].to(self.device)
 
         return tensor
 
-    def match_images(self, img1=None, desc1=None, kp1_xy=None, img2=None, desc2=None, kp2_xy=None, additional_filtering_kwargs=None):
+    def match_images(
+        self,
+        img1=None,
+        desc1=None,
+        kp1_xy=None,
+        img2=None,
+        desc2=None,
+        kp2_xy=None,
+        additional_filtering_kwargs=None,
+    ):
         if img1 is not None and img2 is not None:
-            return self._match_images(img1=img1, desc1=desc1, kp1_xy=kp1_xy, img2=img2, desc2=desc2, kp2_xy=kp2_xy, additional_filtering_kwargs=additional_filtering_kwargs)
+            return self._match_images(
+                img1=img1,
+                desc1=desc1,
+                kp1_xy=kp1_xy,
+                img2=img2,
+                desc2=desc2,
+                kp2_xy=kp2_xy,
+                additional_filtering_kwargs=additional_filtering_kwargs,
+            )
         else:
-            return self._match_kp(desc1=desc1, kp1_xy=kp1_xy, desc2=desc2, kp2_xy=kp2_xy, additional_filtering_kwargs=additional_filtering_kwargs)
+            return self._match_kp(
+                desc1=desc1,
+                kp1_xy=kp1_xy,
+                desc2=desc2,
+                kp2_xy=kp2_xy,
+                additional_filtering_kwargs=additional_filtering_kwargs,
+            )
 
     def _match_kp(self, desc1, kp1_xy, desc2, kp2_xy, additional_filtering_kwargs=None):
-        return super().match_images(desc1=desc1, kp1_xy=kp1_xy, desc2=desc2, kp2_xy=kp2_xy, additional_filtering_kwargs=additional_filtering_kwargs)
-
+        return super().match_images(
+            desc1=desc1,
+            kp1_xy=kp1_xy,
+            desc2=desc2,
+            kp2_xy=kp2_xy,
+            additional_filtering_kwargs=additional_filtering_kwargs,
+        )
 
     def calc_scores(self, tensor_img, kp_xy):
         sp = superpoint.SuperPoint(self.config["superpoint"])
@@ -1252,8 +1500,8 @@ class SuperGlueMatcher(Matcher):
         scores = torch.nn.functional.softmax(scores, 1)[:, :-1]
         b, _, h, w = scores.shape
         scores = scores.permute(0, 2, 3, 1).reshape(b, h, w, 8, 8)
-        scores = scores.permute(0, 1, 3, 2, 4).reshape(b, h*8, w*8)
-        scores = superpoint.simple_nms(scores, sp.config['nms_radius'])
+        scores = scores.permute(0, 1, 3, 2, 4).reshape(b, h * 8, w * 8)
+        scores = superpoint.simple_nms(scores, sp.config["nms_radius"])
         kp = [torch.from_numpy(kp_xy[:, ::-1].astype(int))]
         scores = [s[tuple(k.t())] for s, k in zip(scores, kp)]
         scores = scores[0].unsqueeze(dim=0)
@@ -1289,8 +1537,6 @@ class SuperGlueMatcher(Matcher):
 
     #     return inp, kp_xy_inp, desc_inp, scores
 
-
-
     def prep_data(self, img, kp_xy):
         """
         sp_kp = pred["keypoints"] # Tensor with shape [1, n_kp, 2],  float32
@@ -1313,21 +1559,30 @@ class SuperGlueMatcher(Matcher):
 
         return inp, kp_xy_inp, desc_inp, scores
 
-
-    def _match_images(self, img1=None, desc1=None, kp1_xy=None, img2=None, desc2=None, kp2_xy=None, additional_filtering_kwargs=None):
+    def _match_images(
+        self,
+        img1=None,
+        desc1=None,
+        kp1_xy=None,
+        img2=None,
+        desc2=None,
+        kp2_xy=None,
+        additional_filtering_kwargs=None,
+    ):
 
         inp1, kp1_xy_inp, desc1_inp, scores1 = self.prep_data(img=img1, kp_xy=kp1_xy)
         inp2, kp2_xy_inp, desc2_inp, scores2 = self.prep_data(img2, kp2_xy)
 
-        data = {"image0":inp1,
-                "descriptors0": desc1_inp,
-                "keypoints0": kp1_xy_inp,
-                "scores0": scores1,
-                "image1": inp2,
-                "descriptors1": desc2_inp,
-                "keypoints1": kp2_xy_inp,
-                "scores1": scores2
-                }
+        data = {
+            "image0": inp1,
+            "descriptors0": desc1_inp,
+            "keypoints0": kp1_xy_inp,
+            "scores0": scores1,
+            "image1": inp2,
+            "descriptors1": desc2_inp,
+            "keypoints1": kp2_xy_inp,
+            "scores1": scores2,
+        }
 
         sg = superglue.SuperGlue(self.config["superglue"])
 
@@ -1337,7 +1592,7 @@ class SuperGlueMatcher(Matcher):
         sg_pred.update(data)
 
         # Keep the matching keypoints and descriptors
-        matches, conf = sg_pred['matches0'], sg_pred['matching_scores0']
+        matches, conf = sg_pred["matches0"], sg_pred["matching_scores0"]
         valid = matches > -1
         matches12 = np.where(valid)[0]
         matches21 = matches[valid]
@@ -1352,56 +1607,74 @@ class SuperGlueMatcher(Matcher):
 
         n_sg_matches = len(matches12)
         if matcher_obj.metric is None:
-            metric = 'euclidean'
+            metric = "euclidean"
         else:
             metric = matcher_obj.metric
 
-        if n_sg_matches < 4 or self.match_filter_method.lower() == SUPERGLUE_FILTER_NAME:
+        if (
+            n_sg_matches < 4
+            or self.match_filter_method.lower() == SUPERGLUE_FILTER_NAME
+        ):
             if n_sg_matches == 0:
                 match_d = np.inf
                 match_s = 0
                 match_distances = np.array([])
             else:
-                match_distances = metrics.pairwise_distances(desc1, desc2, metric=metric)
+                match_distances = metrics.pairwise_distances(
+                    desc1, desc2, metric=metric
+                )
                 match_d = np.mean(match_distances)
-                match_s = np.mean(convert_distance_to_similarity(match_distances, n_features=desc1.shape[1]))
+                match_s = np.mean(
+                    convert_distance_to_similarity(
+                        match_distances, n_features=desc1.shape[1]
+                    )
+                )
 
+            match_info12 = MatchInfo(
+                matched_kp1_xy=kp1_pos_xy,
+                matched_desc1=sg_desc1,
+                matches12=matches12,
+                matched_kp2_xy=kp2_pos_xy,
+                matched_desc2=sg_desc2,
+                matches21=matches21,
+                match_distances=match_distances,
+                distance=match_d,
+                similarity=match_s,
+                metric_name="SuperGlue",
+                metric_type="distance",
+            )
 
-            match_info12 = MatchInfo(matched_kp1_xy=kp1_pos_xy,
-                                      matched_desc1=sg_desc1,
-                                      matches12=matches12,
-                                      matched_kp2_xy=kp2_pos_xy,
-                                      matched_desc2=sg_desc2,
-                                      matches21=matches21,
-                                      match_distances=match_distances,
-                                      distance=match_d,
-                                      similarity=match_s,
-                                      metric_name="SuperGlue",
-                                      metric_type="distance")
-
-            match_info21 = MatchInfo(matched_kp1_xy=kp2_pos_xy,
-                                      matched_desc1=sg_desc2,
-                                      matches12=matches21,
-                                      matched_kp2_xy=kp1_pos_xy,
-                                      matched_desc2=sg_desc1,
-                                      matches21=matches12,
-                                      match_distances=match_distances,
-                                      distance=match_d,
-                                      similarity=match_s,
-                                      metric_name="SuperGlue",
-                                      metric_type="distance")
+            match_info21 = MatchInfo(
+                matched_kp1_xy=kp2_pos_xy,
+                matched_desc1=sg_desc2,
+                matches12=matches21,
+                matched_kp2_xy=kp1_pos_xy,
+                matched_desc2=sg_desc1,
+                matches21=matches12,
+                match_distances=match_distances,
+                distance=match_d,
+                similarity=match_s,
+                metric_name="SuperGlue",
+                metric_type="distance",
+            )
 
             unfiltered_match_info12 = deepcopy(match_info12)
             filtered_match_info12 = deepcopy(match_info12)
             unfiltered_match_info21 = deepcopy(match_info21)
             filtered_match_info21 = deepcopy(match_info21)
         else:
-            unfiltered_match_info12, filtered_match_info12, \
-                unfiltered_match_info21, filtered_match_info21 = \
-                matcher_obj.match_images(sg_desc1, kp1_pos_xy,
-                                         sg_desc2, kp2_pos_xy,
-                                         additional_filtering_kwargs)
+            (
+                unfiltered_match_info12,
+                filtered_match_info12,
+                unfiltered_match_info21,
+                filtered_match_info21,
+            ) = matcher_obj.match_images(
+                sg_desc1, kp1_pos_xy, sg_desc2, kp2_pos_xy, additional_filtering_kwargs
+            )
 
-
-        return unfiltered_match_info12, filtered_match_info12, unfiltered_match_info21, filtered_match_info21
-
+        return (
+            unfiltered_match_info12,
+            filtered_match_info12,
+            unfiltered_match_info21,
+            filtered_match_info21,
+        )

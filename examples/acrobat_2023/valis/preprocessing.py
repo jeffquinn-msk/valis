@@ -1,6 +1,7 @@
 """
 Collection of pre-processing methods for aligning images
 """
+
 from scipy.interpolate import Akima1DInterpolator
 from skimage import exposure, filters, measure, morphology, restoration
 from sklearn.cluster import estimate_bandwidth, MiniBatchKMeans, MeanShift
@@ -15,7 +16,7 @@ from . import slide_io
 from . import warp_tools
 
 # DEFAULT_COLOR_STD_C = 0.01 # jzazbz
-DEFAULT_COLOR_STD_C = 0.2 # cam16-ucs
+DEFAULT_COLOR_STD_C = 0.2  # cam16-ucs
 
 
 class ImageProcesser(object):
@@ -77,7 +78,7 @@ class ImageProcesser(object):
     def create_mask(self):
         return np.full(self.image.shape[0:2], 255, dtype=np.uint8)
 
-    def process_image(self,  *args, **kwargs):
+    def process_image(self, *args, **kwargs):
         """Pre-process image for registration
 
         Pre-process image for registration. Processed image should
@@ -92,13 +93,12 @@ class ImageProcesser(object):
 
 
 class ChannelGetter(ImageProcesser):
-    """Select channel from image
-
-    """
+    """Select channel from image"""
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_multichannel(self.image)
@@ -109,7 +109,9 @@ class ChannelGetter(ImageProcesser):
         reader_cls = slide_io.get_slide_reader(self.src_f, series=self.series)
         reader = reader_cls(self.src_f)
         if self.image is None:
-            chnl = reader.get_channel(channel=channel, level=self.level, series=self.series).astype(float)
+            chnl = reader.get_channel(
+                channel=channel, level=self.level, series=self.series
+            ).astype(float)
         else:
             if self.image.ndim == 2:
                 # the image is already the channel
@@ -122,26 +124,29 @@ class ChannelGetter(ImageProcesser):
         if adaptive_eq:
             chnl = exposure.equalize_adapthist(chnl)
 
-        chnl = exposure.rescale_intensity(chnl, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        chnl = exposure.rescale_intensity(
+            chnl, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return chnl
 
 
 class ColorfulStandardizer(ImageProcesser):
-    """Standardize the colorfulness of the image
-
-    """
+    """Standardize the colorfulness of the image"""
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
 
         return tissue_mask
 
-    def process_image(self, c=DEFAULT_COLOR_STD_C, invert=True, adaptive_eq=False, *args, **kwargs):
+    def process_image(
+        self, c=DEFAULT_COLOR_STD_C, invert=True, adaptive_eq=False, *args, **kwargs
+    ):
         std_rgb = standardize_colorfulness(self.image, c)
         std_g = skcolor.rgb2gray(std_rgb)
 
@@ -149,76 +154,86 @@ class ColorfulStandardizer(ImageProcesser):
             std_g = 255 - std_g
 
         if adaptive_eq:
-            std_g = exposure.equalize_adapthist(std_g/255)
+            std_g = exposure.equalize_adapthist(std_g / 255)
 
-        processed_img = exposure.rescale_intensity(std_g, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            std_g, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return processed_img
 
 
 class Luminosity(ImageProcesser):
-    """Get luminosity of an RGB image
-
-    """
+    """Get luminosity of an RGB image"""
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
-
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
 
         return tissue_mask
 
-    def process_image(self,  *args, **kwaargs):
+    def process_image(self, *args, **kwaargs):
         lum = get_luminosity(self.image)
         inv_lum = 255 - lum
-        processed_img = exposure.rescale_intensity(inv_lum, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            inv_lum, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return processed_img
 
 
 class BgColorDistance(ImageProcesser):
-    """Calculate distance between each pixel and the background color
-
-    """
+    """Calculate distance between each pixel and the background color"""
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
 
         return tissue_mask
 
-    def process_image(self,  brightness_q=0.99, *args, **kwargs):
+    def process_image(self, brightness_q=0.99, *args, **kwargs):
 
-        processed_img, _ = calc_background_color_dist(self.image, brightness_q=brightness_q)
-        processed_img = exposure.rescale_intensity(processed_img, in_range="image", out_range=(0, 1))
+        processed_img, _ = calc_background_color_dist(
+            self.image, brightness_q=brightness_q
+        )
+        processed_img = exposure.rescale_intensity(
+            processed_img, in_range="image", out_range=(0, 1)
+        )
         processed_img = exposure.equalize_adapthist(processed_img)
-        processed_img = exposure.rescale_intensity(processed_img, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            processed_img, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return processed_img
 
+
 class StainFlattener(ImageProcesser):
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
-
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
 
         processed = self.process_image(adaptive_eq=True)
 
         # Want to ignore black background
-        to_thresh_mask = 255*(np.all(self.image > 25, axis=2)).astype(np.uint8)
+        to_thresh_mask = 255 * (np.all(self.image > 25, axis=2)).astype(np.uint8)
 
         low_t, high_t = filters.threshold_multiotsu(processed[to_thresh_mask > 0])
-        tissue_mask = 255*filters.apply_hysteresis_threshold(processed, low_t, high_t).astype(np.uint8)
+        tissue_mask = 255 * filters.apply_hysteresis_threshold(
+            processed, low_t, high_t
+        ).astype(np.uint8)
 
-        kernel_size=3
+        kernel_size = 3
         tissue_mask = mask2contours(tissue_mask, kernel_size)
 
         return tissue_mask
@@ -232,9 +247,9 @@ class StainFlattener(ImageProcesser):
         fg_to_cluster = rgb2jab(fg_rgb)
 
         if n_stains > 0:
-            clusterer = MiniBatchKMeans(n_clusters=n_stains,
-                                        reassignment_ratio=0,
-                                        n_init=3)
+            clusterer = MiniBatchKMeans(
+                n_clusters=n_stains, reassignment_ratio=0, n_init=3
+            )
         else:
             bandwidth = estimate_bandwidth(fg_to_cluster, quantile=0.2, n_samples=500)
             clusterer = MeanShift(bandwidth=bandwidth, bin_seeding=True)
@@ -245,7 +260,7 @@ class StainFlattener(ImageProcesser):
         stain_rgb = jab2rgb(clusterer.cluster_centers_)
         stain_rgb = np.clip(stain_rgb, 0, 1)
 
-        stain_rgb = np.vstack([255*stain_rgb, mean_bg_rgb])
+        stain_rgb = np.vstack([255 * stain_rgb, mean_bg_rgb])
         D = stainmat2decon(stain_rgb)
         deconvolved = deconvolve_img(self.image, D)
 
@@ -253,7 +268,7 @@ class StainFlattener(ImageProcesser):
         d_flat = deconvolved.reshape(-1, deconvolved.shape[2])
         dmax = np.percentile(d_flat, q, axis=0)
         for i in range(deconvolved.shape[2]):
-            c_dmax  = dmax[i] + eps
+            c_dmax = dmax[i] + eps
             deconvolved[..., i] = np.clip(deconvolved[..., i], 0, c_dmax)
             deconvolved[..., i] /= c_dmax
 
@@ -264,20 +279,19 @@ class StainFlattener(ImageProcesser):
     def process_image_all(self, n_stains=100, q=95):
         img_to_cluster = rgb2jch(self.image)
         if n_stains > 0:
-            clusterer = MiniBatchKMeans(n_clusters=n_stains,
-                                        reassignment_ratio=0,
-                                        n_init=3)
+            clusterer = MiniBatchKMeans(
+                n_clusters=n_stains, reassignment_ratio=0, n_init=3
+            )
         else:
             bandwidth = estimate_bandwidth(img_to_cluster, quantile=0.2, n_samples=500)
             clusterer = MeanShift(bandwidth=bandwidth, bin_seeding=True)
             # clusterer = MiniBatchKMeans(n_init="auto", reassignment_ratio=0)
 
-
         clusterer.fit(img_to_cluster.reshape(-1, img_to_cluster.shape[2]))
         centers = np.clip(clusterer.cluster_centers_, -1, 1)
         stain_rgb = jab2rgb(centers)
 
-        stain_rgb = 255*stain_rgb
+        stain_rgb = 255 * stain_rgb
         stain_rgb = np.clip(stain_rgb, 0, 255)
         stain_rgb = np.unique(stain_rgb, axis=0)
         D = stainmat2decon(stain_rgb)
@@ -303,29 +317,31 @@ class StainFlattener(ImageProcesser):
         if adaptive_eq:
             processed_img = exposure.equalize_adapthist(processed_img)
 
-        processed_img = exposure.rescale_intensity(processed_img, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            processed_img, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return processed_img
 
 
 class Gray(ImageProcesser):
-    """Get luminosity of an RGB image
-
-    """
+    """Get luminosity of an RGB image"""
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
-
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
 
         return tissue_mask
 
-    def process_image(self,  *args, **kwaargs):
+    def process_image(self, *args, **kwaargs):
         g = skcolor.rgb2gray(self.image)
-        processed_img = exposure.rescale_intensity(g, in_range="image", out_range=(0, 255)).astype(np.uint8)
+        processed_img = exposure.rescale_intensity(
+            g, in_range="image", out_range=(0, 255)
+        ).astype(np.uint8)
 
         return processed_img
 
@@ -341,14 +357,14 @@ class HEDeconvolution(ImageProcesser):
     """
 
     def __init__(self, image, src_f, level, series, *args, **kwargs):
-        super().__init__(image=image, src_f=src_f, level=level,
-                         series=series, *args, **kwargs)
+        super().__init__(
+            image=image, src_f=src_f, level=level, series=series, *args, **kwargs
+        )
 
     def create_mask(self):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
 
         return tissue_mask
-
 
     def process_image(self, stain="hem", Io=240, alpha=1, beta=0.15, *args, **kwargs):
         """
@@ -363,7 +379,12 @@ class HEDeconvolution(ImageProcesser):
         """
 
         normalized_stains_conc = normalize_he(self.image, Io=Io, alpha=alpha, beta=beta)
-        processed_img = deconvolution_he(self.image, Io=Io, normalized_concentrations=normalized_stains_conc, stain=stain)
+        processed_img = deconvolution_he(
+            self.image,
+            Io=Io,
+            normalized_concentrations=normalized_stains_conc,
+            stain=stain,
+        )
 
         return processed_img
 
@@ -377,7 +398,7 @@ def denoise_img(img, mask=None, weight=None):
         sigma_scale = 400
 
     if weight is None:
-        weight=sigma/sigma_scale
+        weight = sigma / sigma_scale
 
     denoised_img = restoration.denoise_tv_chambolle(img, weight=weight)
     denoised_img = exposure.rescale_intensity(denoised_img, out_range="uint8")
@@ -410,20 +431,20 @@ def standardize_colorfulness(img, c=DEFAULT_COLOR_STD_C, h=0):
     eps = np.finfo("float").eps
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
         if 1 < img.max() <= 255 and np.issubdtype(img.dtype, np.integer):
-            cam = colour.convert(img/255 + eps, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img / 255 + eps, "sRGB", "CAM16UCS")
         else:
-            cam = colour.convert(img + eps, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img + eps, "sRGB", "CAM16UCS")
 
     lum = cam[..., 0]
     cc = np.full_like(lum, c)
     hc = np.full_like(lum, h)
     new_a, new_b = cc * np.cos(hc), cc * np.sin(hc)
-    new_cam = np.dstack([lum, new_a+eps, new_b+eps])
+    new_cam = np.dstack([lum, new_a + eps, new_b + eps])
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
-        rgb2 = colour.convert(new_cam, 'CAM16UCS', 'sRGB')
+        rgb2 = colour.convert(new_cam, "CAM16UCS", "sRGB")
         rgb2 -= eps
 
-    rgb2 = (np.clip(rgb2, 0, 1)*255).astype(np.uint8)
+    rgb2 = (np.clip(rgb2, 0, 1) * 255).astype(np.uint8)
 
     return rgb2
 
@@ -447,9 +468,9 @@ def get_luminosity(img, **kwargs):
 
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
         if 1 < img.max() <= 255 and np.issubdtype(img.dtype, np.integer):
-            cam = colour.convert(img/255, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img / 255, "sRGB", "CAM16UCS")
         else:
-            cam = colour.convert(img, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img, "sRGB", "CAM16UCS")
 
     lum = exposure.rescale_intensity(cam[..., 0], in_range=(0, 1), out_range=(0, 255))
 
@@ -475,9 +496,9 @@ def calc_background_color_dist(img, brightness_q=0.99, mask=None):
     eps = np.finfo("float").eps
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
         if 1 < img.max() <= 255 and np.issubdtype(img.dtype, np.integer):
-            cam = colour.convert(img/255 + eps, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img / 255 + eps, "sRGB", "CAM16UCS")
         else:
-            cam = colour.convert(img + eps, 'sRGB', 'CAM16UCS')
+            cam = colour.convert(img + eps, "sRGB", "CAM16UCS")
 
     if mask is None:
         brightest_thresh = np.quantile(cam[..., 0], brightness_q)
@@ -487,13 +508,13 @@ def calc_background_color_dist(img, brightness_q=0.99, mask=None):
     brightest_idx = np.where(cam[..., 0] >= brightest_thresh)
     brightest_pixels = cam[brightest_idx]
     bright_cam = brightest_pixels.mean(axis=0)
-    cam_d = np.sqrt(np.sum((cam - bright_cam)**2, axis=2))
+    cam_d = np.sqrt(np.sum((cam - bright_cam) ** 2, axis=2))
 
     return cam_d, cam
 
 
 def normalize_he(img: np.array, Io: int = 240, alpha: int = 1, beta: int = 0.15):
-    """ Normalize staining appearence of H&E stained images.
+    """Normalize staining appearence of H&E stained images.
 
     Parameters
     ----------
@@ -522,10 +543,10 @@ def normalize_he(img: np.array, Io: int = 240, alpha: int = 1, beta: int = 0.15)
     img = img.reshape((-1, 3))
 
     # calculate optical density
-    opt_density = -np.log((img.astype(np.float)+1)/Io)
+    opt_density = -np.log((img.astype(np.float) + 1) / Io)
 
     # remove transparent pixels
-    opt_density_hat = opt_density[~np.any(opt_density<beta, axis=1)]
+    opt_density_hat = opt_density[~np.any(opt_density < beta, axis=1)]
 
     # compute eigenvectors
     _, eigvecs = np.linalg.eigh(np.cov(opt_density_hat.T))
@@ -537,7 +558,7 @@ def normalize_he(img: np.array, Io: int = 240, alpha: int = 1, beta: int = 0.15)
     phi = np.arctan2(t_hat[:, 1], t_hat[:, 0])
 
     min_phi = np.percentile(phi, alpha)
-    max_phi = np.percentile(phi, 100-alpha)
+    max_phi = np.percentile(phi, 100 - alpha)
 
     v_min = eigvecs[:, 1:3].dot(np.array([(np.cos(min_phi), np.sin(min_phi))]).T)
     v_max = eigvecs[:, 1:3].dot(np.array([(np.cos(max_phi), np.sin(max_phi))]).T)
@@ -556,15 +577,22 @@ def normalize_he(img: np.array, Io: int = 240, alpha: int = 1, beta: int = 0.15)
     stains_conc = np.linalg.lstsq(h_e_vector, y, rcond=None)[0]
 
     # normalize stains concentrations
-    max_conc = np.array([np.percentile(stains_conc[0, :], 99), np.percentile(stains_conc[1, :],99)])
+    max_conc = np.array(
+        [np.percentile(stains_conc[0, :], 99), np.percentile(stains_conc[1, :], 99)]
+    )
     tmp = np.divide(max_conc, max_conc_ref)
     normalized_stains_conc = np.divide(stains_conc, tmp[:, np.newaxis])
 
     return normalized_stains_conc
 
 
-def deconvolution_he(img: np.array, normalized_concentrations: np.array, stain: str = "hem", Io: int = 240):
-    """ Unmix the hematoxylin or eosin channel based on their respective normalized concentrations.
+def deconvolution_he(
+    img: np.array,
+    normalized_concentrations: np.array,
+    stain: str = "hem",
+    Io: int = 240,
+):
+    """Unmix the hematoxylin or eosin channel based on their respective normalized concentrations.
 
     Parameters
     ----------
@@ -586,9 +614,9 @@ def deconvolution_he(img: np.array, normalized_concentrations: np.array, stain: 
 
     # unmix hematoxylin or eosin
     if stain == "hem":
-        out = np.multiply(Io, normalized_concentrations[0,:])
+        out = np.multiply(Io, normalized_concentrations[0, :])
     elif stain == "eos":
-        out = np.multiply(Io, normalized_concentrations[1,:])
+        out = np.multiply(Io, normalized_concentrations[1, :])
     else:
         raise ValueError(f"Stain ``{stain}`` is unknown.")
 
@@ -598,28 +626,28 @@ def deconvolution_he(img: np.array, normalized_concentrations: np.array, stain: 
     return out
 
 
-def rgb2jab(rgb, cspace='CAM16UCS'):
+def rgb2jab(rgb, cspace="CAM16UCS"):
     eps = np.finfo("float").eps
     if np.issubdtype(rgb.dtype, np.integer) and rgb.max() > 1:
-        rgb01 = rgb/255.0
+        rgb01 = rgb / 255.0
     else:
         rgb01 = rgb
 
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
-        jab = colour.convert(rgb01+eps, 'sRGB', cspace)
+        jab = colour.convert(rgb01 + eps, "sRGB", cspace)
 
     return jab
 
 
-def jab2rgb(jab, cspace='CAM16UCS'):
+def jab2rgb(jab, cspace="CAM16UCS"):
     eps = np.finfo("float").eps
     with colour.utilities.suppress_warnings(colour_usage_warnings=True):
-        rgb = colour.convert(jab+eps, cspace, 'sRGB')
+        rgb = colour.convert(jab + eps, cspace, "sRGB")
 
     return rgb
 
 
-def rgb2jch(rgb, cspace='CAM16UCS', h_rotation=0):
+def rgb2jch(rgb, cspace="CAM16UCS", h_rotation=0):
     jab = rgb2jab(rgb, cspace)
     jch = colour.models.Jab_to_JCh(jab)
     jch[..., 2] += h_rotation
@@ -633,7 +661,7 @@ def rgb2jch(rgb, cspace='CAM16UCS', h_rotation=0):
 
 def rgb255_to_rgb1(rgb_img):
     if np.issubdtype(rgb_img.dtype, np.integer) or rgb_img.max() > 1:
-        rgb01 = rgb_img/255.0
+        rgb01 = rgb_img / 255.0
     else:
         rgb01 = rgb_img
 
@@ -682,14 +710,16 @@ def combine_masks_by_hysteresis(mask_list):
     to_hyst_mask = np.zeros(mshape)
     for m in mask_list:
 
-        if(isinstance(m, pyvips.Image)):
+        if isinstance(m, pyvips.Image):
             np_mask = warp_tools.vips2numpy(m)
         else:
             np_mask = m.copy()
 
-        to_hyst_mask[ np_mask > 0] += 1
+        to_hyst_mask[np_mask > 0] += 1
 
-    hyst_mask = 255*filters.apply_hysteresis_threshold(to_hyst_mask, 0.5, len(mask_list) - 0.5).astype(np.uint8)
+    hyst_mask = 255 * filters.apply_hysteresis_threshold(
+        to_hyst_mask, 0.5, len(mask_list) - 0.5
+    ).astype(np.uint8)
 
     return hyst_mask
 
@@ -716,6 +746,7 @@ def combine_masks(mask1, mask2, op="or"):
 
     return combo_mask
 
+
 def remove_small_obj_and_lines_by_dist(mask):
     """
     Will remove smaller objects and thin lines that
@@ -724,7 +755,7 @@ def remove_small_obj_and_lines_by_dist(mask):
 
     dist_transform = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     dst_t = filters.threshold_li(dist_transform[mask > 0])
-    temp_sure_fg = 255*(dist_transform >= dst_t).astype(np.uint8)
+    temp_sure_fg = 255 * (dist_transform >= dst_t).astype(np.uint8)
     sure_mask = combine_masks_by_hysteresis([mask, temp_sure_fg])
 
     return sure_mask
@@ -745,11 +776,12 @@ def create_edges_mask(labeled_img):
     inner_mask = np.zeros(labeled_img.shape, dtype=np.uint8)
     edges_mask = np.zeros(labeled_img.shape, dtype=np.uint8)
     for regn in img_regions:
-        on_border_idx = np.where((regn.coords[:, 0] == 0) |
-                        (regn.coords[:, 0] == labeled_img.shape[0]-1) |
-                        (regn.coords[:, 1] == 0) |
-                        (regn.coords[:, 1] == labeled_img.shape[1]-1)
-                        )[0]
+        on_border_idx = np.where(
+            (regn.coords[:, 0] == 0)
+            | (regn.coords[:, 0] == labeled_img.shape[0] - 1)
+            | (regn.coords[:, 1] == 0)
+            | (regn.coords[:, 1] == labeled_img.shape[1] - 1)
+        )[0]
         if len(on_border_idx) == 0:
             inner_mask[regn.coords[:, 0], regn.coords[:, 1]] = 255
         else:
@@ -758,7 +790,14 @@ def create_edges_mask(labeled_img):
     return inner_mask, edges_mask
 
 
-def create_tissue_mask_from_rgb(img, brightness_q=0.99, kernel_size=3, gray_thresh=0.075, light_gray_thresh=0.875, dark_gray_thresh=0.7):
+def create_tissue_mask_from_rgb(
+    img,
+    brightness_q=0.99,
+    kernel_size=3,
+    gray_thresh=0.075,
+    light_gray_thresh=0.875,
+    dark_gray_thresh=0.7,
+):
     """Create mask that only covers tissue
 
     Also remove dark regions on the edge of the slide, which could be artifacts
@@ -787,13 +826,19 @@ def create_tissue_mask_from_rgb(img, brightness_q=0.99, kernel_size=3, gray_thre
     # Ignore artifacts that could throw off thresholding. These are often greyish in color
 
     jch = rgb2jch(img)
-    light_greys = 255*((jch[..., 1] < gray_thresh) & (jch[..., 0] < light_gray_thresh)).astype(np.uint8)
-    dark_greys = 255*((jch[..., 1] < gray_thresh) & (jch[..., 0] < dark_gray_thresh)).astype(np.uint8)
+    light_greys = 255 * (
+        (jch[..., 1] < gray_thresh) & (jch[..., 0] < light_gray_thresh)
+    ).astype(np.uint8)
+    dark_greys = 255 * (
+        (jch[..., 1] < gray_thresh) & (jch[..., 0] < dark_gray_thresh)
+    ).astype(np.uint8)
     grey_mask = combine_masks_by_hysteresis([light_greys, dark_greys])
 
     color_mask = 255 - grey_mask
 
-    cam_d, cam = calc_background_color_dist(img, brightness_q=brightness_q, mask=color_mask)
+    cam_d, cam = calc_background_color_dist(
+        img, brightness_q=brightness_q, mask=color_mask
+    )
 
     # Reduce intensity of thick horizontal and vertial lines, usually artifacts like edges, streaks, folds, etc...
     vert_knl = np.ones((1, 5))
@@ -827,7 +872,7 @@ def create_tissue_mask_from_multichannel(img, kernel_size=3):
     else:
         t = np.quantile(img, 0.01)
         tissue_mask[img > t] = 255
-    tissue_mask = 255*ndimage.binary_fill_holes(tissue_mask).astype(np.uint8)
+    tissue_mask = 255 * ndimage.binary_fill_holes(tissue_mask).astype(np.uint8)
     concave_tissue_mask = mask2contours(tissue_mask, kernel_size=kernel_size)
 
     return tissue_mask, concave_tissue_mask
@@ -861,7 +906,7 @@ def mask2covexhull(mask):
         concave_mask[r0:r1, c0:c1] += region.convex_image.astype(np.uint8)
 
     concave_mask[concave_mask != 0] = 255
-    concave_mask = 255*ndimage.binary_fill_holes(concave_mask).astype(np.uint8)
+    concave_mask = 255 * ndimage.binary_fill_holes(concave_mask).astype(np.uint8)
 
     return concave_mask
 
@@ -903,7 +948,9 @@ def mask2bbox_mask(mask, merge_bbox=True):
 def mask2contours(mask, kernel_size=3):
     kernel = morphology.disk(kernel_size)
     mask_dilated = cv2.dilate(mask, kernel)
-    contours, _ = cv2.findContours(mask_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        mask_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
     contour_mask = np.zeros_like(mask_dilated)
     for cnt in contours:
         cv2.drawContours(contour_mask, [cnt], 0, 255, -1)
@@ -923,6 +970,7 @@ def match_histograms(src_image, ref_histogram, bins=256):
     :return: image_after_matching
     :rtype: image (array)
     """
+
     def calculate_cdf(histogram):
         """
         This method calculates the cumulative distribution function
@@ -958,7 +1006,7 @@ def match_histograms(src_image, ref_histogram, bins=256):
         return lookup_table
 
     # Split the images into the different color channels
-    src_hist,  _ = np.histogram(src_image.flatten(), bins)
+    src_hist, _ = np.histogram(src_image.flatten(), bins)
 
     # Compute the normalized cdf for the source and reference image
     src_cdf = calculate_cdf(src_hist)
@@ -1014,10 +1062,12 @@ def norm_img_stats(img, target_stats, mask=None):
     lower_knots = np.array([0])
     upper_knots = np.array([300, 350, 400, 450])
     src_stats_flat = np.hstack([lower_knots, src_stats_flat, upper_knots]).astype(float)
-    target_stats_flat = np.hstack([lower_knots, target_stats, upper_knots]).astype(float)
+    target_stats_flat = np.hstack([lower_knots, target_stats, upper_knots]).astype(
+        float
+    )
 
     # Add epsilon to avoid duplicate values
-    eps = 10*np.finfo(float).resolution
+    eps = 10 * np.finfo(float).resolution
     eps_array = np.arange(len(src_stats_flat)) * eps
     src_stats_flat = src_stats_flat + eps_array
     target_stats_flat = target_stats_flat + eps_array
@@ -1040,4 +1090,3 @@ def norm_img_stats(img, target_stats, mask=None):
         normed_img = np.clip(normed_img, 0, 255)
 
     return normed_img
-

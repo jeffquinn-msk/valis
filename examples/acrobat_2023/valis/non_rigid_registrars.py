@@ -1,5 +1,4 @@
-"""Perform non-rigid registration
-"""
+"""Perform non-rigid registration"""
 
 import os
 import pathlib
@@ -25,6 +24,8 @@ NR_PROCESSING_CLASS_KEY = "processing_cls"
 NR_STATS_KEY = "target_stats"
 NR_TILE_WH_KEY = "tile_wh"
 NR_PARAMS_KEY = "params"
+
+
 # Abstract Classes #
 class NonRigidRegistrar(object):
     """Abstract class for non-rigid registration using displacement fields
@@ -163,9 +164,9 @@ class NonRigidRegistrar(object):
         for img in img_list:
             temp_mask[img > 0] = 255
 
-        mask = warp_tools.bbox2mask(*warp_tools.xy2bbox(
-                                    warp_tools.mask2xy(temp_mask)),
-                                    temp_mask.shape)
+        mask = warp_tools.bbox2mask(
+            *warp_tools.xy2bbox(warp_tools.mask2xy(temp_mask)), temp_mask.shape
+        )
 
         return mask
 
@@ -211,8 +212,9 @@ class NonRigidRegistrar(object):
         moving_shape = warp_tools.get_shape(moving_img)[0:2]
         fixed_shape = warp_tools.get_shape(fixed_img)[0:2]
 
-        assert np.all(moving_shape == fixed_shape), \
-            print("Images have different shapes")
+        assert np.all(moving_shape == fixed_shape), print(
+            "Images have different shapes"
+        )
 
         self.shape = moving_shape
         self.moving_img = moving_img
@@ -239,9 +241,9 @@ class NonRigidRegistrar(object):
             masked_moving = self.moving_img.copy()
             masked_fixed = self.fixed_img.copy()
 
-        bk_dxdy = self.calc(moving_img=masked_moving,
-                            fixed_img=masked_fixed,
-                            mask=mask, **kwargs)
+        bk_dxdy = self.calc(
+            moving_img=masked_moving, fixed_img=masked_fixed, mask=mask, **kwargs
+        )
 
         if mask is not None:
             bk_dx = np.zeros(self.shape)
@@ -282,11 +284,13 @@ class NonRigidRegistrar(object):
             if self.grid_spacing is not None:
                 grid_spacing = int(self.grid_spacing)
             else:
-                grid_spacing = np.max(np.array(self.shape)*grid_spacing_ratio).astype(int)
+                grid_spacing = np.max(np.array(self.shape) * grid_spacing_ratio).astype(
+                    int
+                )
 
-        grid_r, grid_c = viz.get_grid(self.shape[:2],
-                                      grid_spacing=grid_spacing,
-                                      thickness=thickness)
+        grid_r, grid_c = viz.get_grid(
+            self.shape[:2], grid_spacing=grid_spacing, thickness=thickness
+        )
 
         grid_img = np.zeros(self.shape[:2])
         grid_img[grid_r, grid_c] = 255
@@ -313,7 +317,7 @@ class NonRigidRegistrar(object):
         """
 
         warp_map = warp_tools.get_warp_map(dxdy=bk_dxdy)
-        warped_img =transform.warp(self.moving_img, warp_map, preserve_range=True)
+        warped_img = transform.warp(self.moving_img, warp_map, preserve_range=True)
         self.warped_image = warped_img
         grid_img = self.get_grid_image(grid_spacing=16)
         warp_grid = transform.warp(grid_img, warp_map, preserve_range=True)
@@ -408,8 +412,9 @@ class NonRigidRegistrarXY(NonRigidRegistrar):
         self.moving_xy = None
         self.fixed_xy = None
 
-    def register(self, moving_img, fixed_img, mask=None, moving_xy=None,
-                 fixed_xy=None, **kwargs):
+    def register(
+        self, moving_img, fixed_img, mask=None, moving_xy=None, fixed_xy=None, **kwargs
+    ):
         """Register images, warping moving_img to align with fixed_img
 
         Uses backwards transforms to register images (i.e. aligning
@@ -453,26 +458,26 @@ class NonRigidRegistrarXY(NonRigidRegistrar):
         """
 
         if moving_xy is not None:
-            moving_xy, fixed_xy = self.filter_xy(moving_xy, fixed_xy,
-                                                 moving_img.shape,
-                                                 mask)
+            moving_xy, fixed_xy = self.filter_xy(
+                moving_xy, fixed_xy, moving_img.shape, mask
+            )
 
         self.moving_xy = moving_xy
         self.fixed_xy = fixed_xy
-        warped_img, warp_grid, bk_dxdy = \
-            NonRigidRegistrar.register(self, moving_img=moving_img,
-                                       fixed_img=fixed_img,
-                                       mask=mask,
-                                       moving_xy=moving_xy,
-                                       fixed_xy=fixed_xy,
-                                       **kwargs)
+        warped_img, warp_grid, bk_dxdy = NonRigidRegistrar.register(
+            self,
+            moving_img=moving_img,
+            fixed_img=fixed_img,
+            mask=mask,
+            moving_xy=moving_xy,
+            fixed_xy=fixed_xy,
+            **kwargs,
+        )
 
         return warped_img, warp_grid, bk_dxdy
 
     def filter_xy(self, moving_xy, fixed_xy, img_shape_rc, mask=None):
-        """Remove points outside image and/or mask
-
-        """
+        """Remove points outside image and/or mask"""
 
         if mask is None:
             mask = np.full(img_shape_rc, 255, dtype=np.uint8)
@@ -525,6 +530,7 @@ class NonRigidRegistrarGroupwise(NonRigidRegistrar):
         Number of images that are being registered as a group
 
     """
+
     def __init__(self, params=None):
         super().__init__(params=params)
         self.img_list = None
@@ -542,9 +548,9 @@ class NonRigidRegistrarGroupwise(NonRigidRegistrar):
         for img in self.img_list:
             temp_mask[img > 0] = 255
 
-        mask = warp_tools.bbox2mask(*warp_tools.xy2bbox(
-                                    warp_tools.mask2xy(temp_mask)),
-                                    temp_mask.shape)
+        mask = warp_tools.bbox2mask(
+            *warp_tools.xy2bbox(warp_tools.mask2xy(temp_mask)), temp_mask.shape
+        )
         return mask
 
     def register(self, img_list, mask=None):
@@ -621,16 +627,21 @@ class NonRigidRegistrarGroupwise(NonRigidRegistrar):
         self.backward_dy = backward_deformations[:, 1]
 
         n_imgs = len(self.img_list)
-        warp_maps = [warp_tools.get_warp_map(dxdy=[self.backward_dx[i],
-                                                   self.backward_dy[i]])
-                     for i in range(n_imgs)]
+        warp_maps = [
+            warp_tools.get_warp_map(dxdy=[self.backward_dx[i], self.backward_dy[i]])
+            for i in range(n_imgs)
+        ]
 
-        warped_imgs = [transform.warp(img_list[i], warp_maps[i], preserve_range=True)
-                       for i in range(n_imgs)]
+        warped_imgs = [
+            transform.warp(img_list[i], warp_maps[i], preserve_range=True)
+            for i in range(n_imgs)
+        ]
 
         grid_img = self.get_grid_image(grid_spacing=16)
-        warped_grids = [transform.warp(grid_img, warp_maps[i], preserve_range=True)
-                        for i in range(n_imgs)]
+        warped_grids = [
+            transform.warp(grid_img, warp_maps[i], preserve_range=True)
+            for i in range(n_imgs)
+        ]
 
         self.warped_image = warped_imgs
         self.deformation_field_img = warped_grids
@@ -645,8 +656,10 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
     May optionally using corresponding points
 
     """
-    def __init__(self, params=None, ammi_weight=0.33,
-                 bending_penalty_weight=0.33, kp_weight=0.33):
+
+    def __init__(
+        self, params=None, ammi_weight=0.33, bending_penalty_weight=0.33, kp_weight=0.33
+    ):
         """
         Parameters
         ----------
@@ -668,7 +681,6 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         self.bending_penalty_weight = bending_penalty_weight
         self.kp_weight = kp_weight
 
-
     @staticmethod
     def get_default_params(img_shape, grid_spacing_ratio=0.025):
         """
@@ -678,11 +690,14 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         for advice on parameter selection
         """
         p = sitk.GetDefaultParameterMap("bspline")
-        p["Metric"] = ['AdvancedMattesMutualInformation', 'TransformBendingEnergyPenalty']
-        p["MaximumNumberOfIterations"] = ['1500']  # Can try up to 2000
-        p['FixedImagePyramid'] = ["FixedRecursiveImagePyramid"]
-        p['MovingImagePyramid'] = ["MovingRecursiveImagePyramid"]
-        p['Interpolator'] = ["BSplineInterpolator"]
+        p["Metric"] = [
+            "AdvancedMattesMutualInformation",
+            "TransformBendingEnergyPenalty",
+        ]
+        p["MaximumNumberOfIterations"] = ["1500"]  # Can try up to 2000
+        p["FixedImagePyramid"] = ["FixedRecursiveImagePyramid"]
+        p["MovingImagePyramid"] = ["MovingRecursiveImagePyramid"]
+        p["Interpolator"] = ["BSplineInterpolator"]
         p["ImageSampler"] = ["RandomCoordinate"]
         p["MetricSamplingStrategy"] = ["None"]  # Use all points
         p["UseRandomSampleRegion"] = ["true"]
@@ -690,12 +705,12 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         p["NumberOfHistogramBins"] = ["32"]
         p["NumberOfSpatialSamples"] = ["3000"]
         p["NewSamplesEveryIteration"] = ["true"]
-        p["SampleRegionSize"] = [str(min([img_shape[1]//3, img_shape[0]//3]))]
+        p["SampleRegionSize"] = [str(min([img_shape[1] // 3, img_shape[0] // 3]))]
         p["Optimizer"] = ["AdaptiveStochasticGradientDescent"]
         p["ASGDParameterEstimationMethod"] = ["DisplacementDistribution"]
         p["HowToCombineTransforms"] = ["Compose"]
-        grid_spacing_x = img_shape[1]*grid_spacing_ratio
-        grid_spacing_y = img_shape[0]*grid_spacing_ratio
+        grid_spacing_x = img_shape[1] * grid_spacing_ratio
+        grid_spacing_y = img_shape[0] * grid_spacing_ratio
         grid_spacing = str(int(np.mean([grid_spacing_x, grid_spacing_y])))
         p["FinalGridSpacingInPhysicalUnits"] = [grid_spacing]
         p["WriteResultImage"] = ["false"]
@@ -739,7 +754,9 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         inverse_transformationFilter.SetTransformParameterMap(transf_parameter_map)
         inverse_transformationFilter.ComputeDeformationFieldOn()
         inverse_transformationFilter.Execute()
-        inverted_deformationField = sitk.GetArrayFromImage(inverse_transformationFilter.GetDeformationField())
+        inverted_deformationField = sitk.GetArrayFromImage(
+            inverse_transformationFilter.GetDeformationField()
+        )
 
         return inverted_deformationField
 
@@ -756,16 +773,22 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
 
         """
 
-        argfile = open(fname, 'w')
+        argfile = open(fname, "w")
         npts = kp.shape[0]
         argfile.writelines(f"index\n{npts}\n")
         for i in range(npts):
             xy = kp[i]
             argfile.writelines(f"{xy[0]} {xy[1]}\n")
 
-    def run_elastix(self, moving_img, fixed_img, moving_xy=None, fixed_xy=None,
-                    params=None, mask=None):
-
+    def run_elastix(
+        self,
+        moving_img,
+        fixed_img,
+        moving_xy=None,
+        fixed_xy=None,
+        params=None,
+        mask=None,
+    ):
         """Run SimpleElastix to register images.
 
         Can using corresponding points to aid in registration by providing
@@ -800,10 +823,12 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         if moving_xy is not None and fixed_xy is not None:
 
             rand_id = np.random.randint(0, 10000)
-            fixed_kp_fname = os.path.join(pathlib.Path(__file__).parent,
-                                          f".{rand_id}_fixedPointSet.pts")
-            moving_kp_fname = os.path.join(pathlib.Path(__file__).parent,
-                                           f".{rand_id}_.movingPointSet.pts")
+            fixed_kp_fname = os.path.join(
+                pathlib.Path(__file__).parent, f".{rand_id}_fixedPointSet.pts"
+            )
+            moving_kp_fname = os.path.join(
+                pathlib.Path(__file__).parent, f".{rand_id}_.movingPointSet.pts"
+            )
 
             self.write_elastix_kp(fixed_xy, fixed_kp_fname)
             self.write_elastix_kp(moving_xy, moving_kp_fname)
@@ -813,9 +838,9 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
             if not self._params_provided or kp_dist_met not in current_metrics:
                 current_metrics.append(kp_dist_met)
                 params["Metric"] = current_metrics
-                weights = np.array([self.ammi_weight,
-                                    self.bending_penalty_weight,
-                                    self.kp_weight])
+                weights = np.array(
+                    [self.ammi_weight, self.bending_penalty_weight, self.kp_weight]
+                )
 
             elastix_image_filter_obj.SetParameterMap(params)
             elastix_image_filter_obj.SetFixedPointSetFileName(fixed_kp_fname)
@@ -828,7 +853,7 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         n_metrics = len(params["Metric"])
         n_res = eval(params["NumberOfResolutions"][0])
         for r in range(n_metrics):
-            params[f'Metric{r}Weight'] = [str(weights[r])]*n_res
+            params[f"Metric{r}Weight"] = [str(weights[r])] * n_res
 
         elastix_image_filter_obj.SetParameterMap(params)
 
@@ -839,8 +864,9 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
         elastix_image_filter_obj.SetFixedImage(sitk_fixed)
 
         if mask is not None:
-            sitk_mask = sitk.Cast(sitk.GetImageFromArray(mask.astype(np.uint8)),
-                                  sitk.sitkUInt8)
+            sitk_mask = sitk.Cast(
+                sitk.GetImageFromArray(mask.astype(np.uint8)), sitk.sitkUInt8
+            )
 
             elastix_image_filter_obj.SetFixedMask(sitk_mask)
 
@@ -848,10 +874,14 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
 
         # Get deformation field #
         transformixImageFilter = sitk.TransformixImageFilter()
-        transformixImageFilter.SetTransformParameterMap(elastix_image_filter_obj.GetTransformParameterMap())
+        transformixImageFilter.SetTransformParameterMap(
+            elastix_image_filter_obj.GetTransformParameterMap()
+        )
         transformixImageFilter.ComputeDeformationFieldOn()
         transformixImageFilter.Execute()
-        deformationField = sitk.GetArrayFromImage(transformixImageFilter.GetDeformationField())
+        deformationField = sitk.GetArrayFromImage(
+            transformixImageFilter.GetDeformationField()
+        )
 
         # Warp image #
         resultImage = elastix_image_filter_obj.GetResultImage()
@@ -871,18 +901,34 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
             if os.path.exists(moving_kp_fname):
                 os.remove(moving_kp_fname)
 
-        tform_files = [f for f in os.listdir(".")
-                    if f.startswith("TransformParameters.")
-                    and f.endswith(".txt")]
+        tform_files = [
+            f
+            for f in os.listdir(".")
+            if f.startswith("TransformParameters.") and f.endswith(".txt")
+        ]
 
         if len(tform_files) > 0:
             for f in tform_files:
                 os.remove(f)
 
-        return resultImage, warped_grid, deformationField, elastix_image_filter_obj, transformixImageFilter
+        return (
+            resultImage,
+            warped_grid,
+            deformationField,
+            elastix_image_filter_obj,
+            transformixImageFilter,
+        )
 
-    def calc(self, moving_img, fixed_img, mask=None,
-             moving_xy=None, fixed_xy=None, *args, **kwargs):
+    def calc(
+        self,
+        moving_img,
+        fixed_img,
+        mask=None,
+        moving_xy=None,
+        fixed_xy=None,
+        *args,
+        **kwargs,
+    ):
         """Perform non-rigid registration using SimpleElastix.
 
         Can include corresponding points to help in registration by providing
@@ -890,20 +936,27 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
 
         """
 
-        assert moving_img.shape == fixed_img.shape,\
-            print("Images have different shapes")
+        assert moving_img.shape == fixed_img.shape, print(
+            "Images have different shapes"
+        )
 
         if not self._params_provided:
             self.params = self.get_default_params(self.moving_img.shape)
 
-        warped_img, \
-            warped_grid, \
-            backward_deformation, \
-            backward_elastix_image_filter_obj, \
-            backward_transformixImageFilter = \
-            self.run_elastix(moving_img, fixed_img,
-                             moving_xy=moving_xy, fixed_xy=fixed_xy,
-                             params=self.params, mask=mask)
+        (
+            warped_img,
+            warped_grid,
+            backward_deformation,
+            backward_elastix_image_filter_obj,
+            backward_transformixImageFilter,
+        ) = self.run_elastix(
+            moving_img,
+            fixed_img,
+            moving_xy=moving_xy,
+            fixed_xy=fixed_xy,
+            params=self.params,
+            mask=mask,
+        )
 
         # Record other params #
         self.grid_spacing = int(eval(self.params["FinalGridSpacingInPhysicalUnits"][0]))
@@ -921,10 +974,17 @@ class OpticalFlowWarper(NonRigidRegistrar):
     Dense optical flow fields may not be diffeomorphic, and so
     this class provides options to smooth displacement fields.
     """
-    def __init__(self, params=None, optical_flow_obj=None,
-                 n_grid_pts=50, sigma_ratio=0.005,
-                 paint_size=5000, fold_penalty=1e-6,
-                 smoothing_method=None):
+
+    def __init__(
+        self,
+        params=None,
+        optical_flow_obj=None,
+        n_grid_pts=50,
+        sigma_ratio=0.005,
+        paint_size=5000,
+        fold_penalty=1e-6,
+        smoothing_method=None,
+    ):
         """
         Parameters
         ----------
@@ -985,33 +1045,38 @@ class OpticalFlowWarper(NonRigidRegistrar):
         self.optical_flow_obj = optical_flow_obj()
 
     def calc(self, moving_img, fixed_img, *args, **kwargs):
-        if self.method in ['createOptFlow_DenseRLOF', 'createOptFlow_SimpleFlow']:
+        if self.method in ["createOptFlow_DenseRLOF", "createOptFlow_SimpleFlow"]:
             if moving_img.ndim == 2:
                 moving_img = color.gray2rgb(moving_img)
 
             if fixed_img.ndim == 2:
                 fixed_img = color.gray2rgb(fixed_img)
 
-        backward_flow = self.optical_flow_obj.calc(fixed_img, moving_img,
-                                                   np.zeros(moving_img.shape[0:2]))
+        backward_flow = self.optical_flow_obj.calc(
+            fixed_img, moving_img, np.zeros(moving_img.shape[0:2])
+        )
 
         backward_flow = np.array([backward_flow[..., 0], backward_flow[..., 1]])
         if self.smoothing_method == "gauss":
-            sigma = self.sigma_ratio*np.max(backward_flow[0].shape)
+            sigma = self.sigma_ratio * np.max(backward_flow[0].shape)
             smooth_dx = filters.gaussian(backward_flow[0], sigma=sigma)
             smooth_dy = filters.gaussian(backward_flow[1], sigma=sigma)
             backward_flow = np.array([smooth_dx, smooth_dy])
 
         elif self.smoothing_method == "inpaint":
-            backward_flow = warp_tools.remove_folds_in_dxdy(backward_flow,
-                                                            n_grid_pts=self.n_grid_pts,
-                                                            paint_size=self.paint_size,
-                                                            method=self.smoothing_method)
+            backward_flow = warp_tools.remove_folds_in_dxdy(
+                backward_flow,
+                n_grid_pts=self.n_grid_pts,
+                paint_size=self.paint_size,
+                method=self.smoothing_method,
+            )
         elif self.smoothing_method == "regularize":
-            backward_flow = warp_tools.untangle(backward_flow,
-                                                n_grid_pts=self.n_grid_pts,
-                                                penalty=self.fold_penalty,
-                                                mask=self.mask)
+            backward_flow = warp_tools.untangle(
+                backward_flow,
+                n_grid_pts=self.n_grid_pts,
+                penalty=self.fold_penalty,
+                mask=self.mask,
+            )
 
         self.optical_flow_obj = None  # Can't pickle OpenCV objects
 
@@ -1068,10 +1133,10 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
         See https://simpleelastix.readthedocs.io/Introduction.html for advice on parameter selection
         """
         p = sitk.GetDefaultParameterMap("groupwise")
-        p["Metric"] = ['AdvancedMattesMutualInformation']
-        p["MaximumNumberOfIterations"] = ['1500']  # Can try up to 2000
-        p['FixedImagePyramid'] = ["FixedRecursiveImagePyramid"]
-        p['MovingImagePyramid'] = ["MovingRecursiveImagePyramid"]
+        p["Metric"] = ["AdvancedMattesMutualInformation"]
+        p["MaximumNumberOfIterations"] = ["1500"]  # Can try up to 2000
+        p["FixedImagePyramid"] = ["FixedRecursiveImagePyramid"]
+        p["MovingImagePyramid"] = ["MovingRecursiveImagePyramid"]
         p["ImageSampler"] = ["RandomCoordinate"]
         p["MetricSamplingStrategy"] = ["None"]  # Use all points
         p["UseRandomSampleRegion"] = ["true"]
@@ -1081,8 +1146,8 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
         p["Optimizer"] = ["AdaptiveStochasticGradientDescent"]
         p["ASGDParameterEstimationMethod"] = ["DisplacementDistribution"]
         p["HowToCombineTransforms"] = ["Compose"]
-        grid_spacing_x = img_shape[1]*grid_spacing_ratio
-        grid_spacing_y = img_shape[0]*grid_spacing_ratio
+        grid_spacing_x = img_shape[1] * grid_spacing_ratio
+        grid_spacing_y = img_shape[0] * grid_spacing_ratio
         grid_spacing = str(int(np.mean([grid_spacing_x, grid_spacing_y])))
         p["FinalGridSpacingInPhysicalUnits"] = [grid_spacing]
         p["WriteResultImage"] = ["false"]
@@ -1091,7 +1156,9 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
 
     def calc(self, img_list, mask=None, *args, **kwargs):
         if self.params is None:
-            self.params = SimpleElastixGroupwiseWarper.get_default_params(self.img_list[0].shape[:2])
+            self.params = SimpleElastixGroupwiseWarper.get_default_params(
+                self.img_list[0].shape[:2]
+            )
 
         vectorOfImages = sitk.VectorOfImage()
         for img in img_list:
@@ -1118,11 +1185,15 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
 
         # Get deformation fields #
         transformixImageFilter = sitk.TransformixImageFilter()
-        transformixImageFilter.SetTransformParameterMap(elastix_image_filter_obj.GetTransformParameterMap())
+        transformixImageFilter.SetTransformParameterMap(
+            elastix_image_filter_obj.GetTransformParameterMap()
+        )
         transformixImageFilter.SetMovingImage(image)
         transformixImageFilter.ComputeDeformationFieldOn()
         transformixImageFilter.Execute()
-        deformationField = sitk.GetArrayFromImage(transformixImageFilter.GetDeformationField())[..., 0:2]
+        deformationField = sitk.GetArrayFromImage(
+            transformixImageFilter.GetDeformationField()
+        )[..., 0:2]
 
         # Get deformation grid #
         grid_spacing = int(eval(self.params["FinalGridSpacingInPhysicalUnits"][0]))
@@ -1140,17 +1211,22 @@ class SimpleElastixGroupwiseWarper(NonRigidRegistrarGroupwise):
         transformixImageFilter.Execute()
         warped_grid = sitk.GetArrayFromImage(transformixImageFilter.GetResultImage())
 
-        tform_files = [f for f in os.listdir(".")
-                    if f.startswith("TransformParameters.")
-                    and f.endswith(".txt")]
+        tform_files = [
+            f
+            for f in os.listdir(".")
+            if f.startswith("TransformParameters.") and f.endswith(".txt")
+        ]
 
         if len(tform_files) > 0:
             for f in tform_files:
                 os.remove(f)
 
-        deformationField = np.array([[deformationField[i][...,  0],
-                                      deformationField[i][...,  1]]
-                                     for i in range(len(deformationField))])
+        deformationField = np.array(
+            [
+                [deformationField[i][..., 0], deformationField[i][..., 1]]
+                for i in range(len(deformationField))
+            ]
+        )
         return deformationField
 
 
@@ -1228,11 +1304,14 @@ class NonRigidTileRegistrar(object):
 
         self.pbar = None
 
-
     def norm_img(self, img, stats, mask=None):
-        normed_img = exposure.rescale_intensity(img, out_range=(0, 255)).astype(np.uint8)
+        normed_img = exposure.rescale_intensity(img, out_range=(0, 255)).astype(
+            np.uint8
+        )
         normed_img = preprocessing.norm_img_stats(normed_img, stats, mask)
-        normed_img = exposure.rescale_intensity(normed_img, out_range=(0, 255)).astype(np.uint8)
+        normed_img = exposure.rescale_intensity(normed_img, out_range=(0, 255)).astype(
+            np.uint8
+        )
 
         return normed_img
 
@@ -1248,14 +1327,20 @@ class NonRigidTileRegistrar(object):
             target_processing_stats = preprocessing.get_channel_stats(tile_v)
 
             fixed_normed = self.norm_img(fixed_img, target_processing_stats, tile_mask)
-            moving_normed = self.norm_img(moving_img, target_processing_stats, tile_mask)
+            moving_normed = self.norm_img(
+                moving_img, target_processing_stats, tile_mask
+            )
 
         except ValueError:
             # Norm using full image's stats
             if self.target_stats is not None:
                 try:
-                    fixed_normed = self.norm_img(fixed_img, self.target_stats, tile_mask)
-                    moving_normed = self.norm_img(moving_img, self.target_stats, tile_mask)
+                    fixed_normed = self.norm_img(
+                        fixed_img, self.target_stats, tile_mask
+                    )
+                    moving_normed = self.norm_img(
+                        moving_img, self.target_stats, tile_mask
+                    )
                 except ValueError:
                     fixed_normed = fixed_img
                     moving_normed = moving_img
@@ -1266,8 +1351,7 @@ class NonRigidTileRegistrar(object):
         return moving_normed, fixed_normed
 
     def process_tile(self, img):
-        """Process tiles
-        """
+        """Process tiles"""
         processor = self.processing_cls(image=img, src_f=None, level=None, series=None)
         try:
             processed_img = processor.process_image(**self.processing_kwargs)
@@ -1297,22 +1381,29 @@ class NonRigidTileRegistrar(object):
             if moving_tile.interpretation == "srgb":
                 # Limit registration to be inside image
                 # Warped areas outside image have the same pixel values, usually 0
-                edge_mask = 255*((np_moving.min(axis=2) != np_moving.max(axis=2)) & (np_fixed.min(axis=2) != np_fixed.max(axis=2))).astype(np.uint8)
+                edge_mask = 255 * (
+                    (np_moving.min(axis=2) != np_moving.max(axis=2))
+                    & (np_fixed.min(axis=2) != np_fixed.max(axis=2))
+                ).astype(np.uint8)
 
                 if np_mask is not None:
-                    np_mask = 255*((edge_mask > 0) & (np_mask > 0)).astype(np.uint8)
+                    np_mask = 255 * ((edge_mask > 0) & (np_mask > 0)).astype(np.uint8)
                 else:
                     np_mask = edge_mask
 
-
             # Check if either of the tiles are empty
-            is_empty = fixed_tile.max() == fixed_tile.min() or moving_tile.max() == moving_tile.min()
+            is_empty = (
+                fixed_tile.max() == fixed_tile.min()
+                or moving_tile.max() == moving_tile.min()
+            )
             if np_mask is not None:
                 is_empty = is_empty or np_mask.max() == 0
 
             if is_empty:
                 # Nothing to register
-                empty_dxdy = pyvips.Image.black(moving_tile.width, moving_tile.height, bands=2).cast("float")
+                empty_dxdy = pyvips.Image.black(
+                    moving_tile.width, moving_tile.height, bands=2
+                ).cast("float")
                 self.bk_dxdy_tiles[tile_idx] = empty_dxdy
                 self.fwd_dxdy_tiles[tile_idx] = empty_dxdy
                 self.pbar.update(1)
@@ -1338,15 +1429,21 @@ class NonRigidTileRegistrar(object):
                 else:
                     moving_processed = np_moving
 
-            moving_normed, fixed_normed = self.norm_tiles(moving_processed, fixed_processed, np_mask)
+            moving_normed, fixed_normed = self.norm_tiles(
+                moving_processed, fixed_processed, np_mask
+            )
 
             tile_non_rigid_reg_obj = self.non_rigid_registrar_cls()
 
             _, _, bk_dxdy = tile_non_rigid_reg_obj.register(moving_normed, fixed_normed)
             fwd_dxdy = warp_tools.get_inverse_field(bk_dxdy)
 
-            vips_tile_bk_dxdy = warp_tools.numpy2vips(np.dstack(bk_dxdy).astype(np.float32))
-            vips_tile_fwd_dxdy = warp_tools.numpy2vips(np.dstack(fwd_dxdy).astype(np.float32))
+            vips_tile_bk_dxdy = warp_tools.numpy2vips(
+                np.dstack(bk_dxdy).astype(np.float32)
+            )
+            vips_tile_fwd_dxdy = warp_tools.numpy2vips(
+                np.dstack(fwd_dxdy).astype(np.float32)
+            )
 
             self.bk_dxdy_tiles[tile_idx] = vips_tile_bk_dxdy
             self.fwd_dxdy_tiles[tile_idx] = vips_tile_fwd_dxdy
@@ -1365,13 +1462,34 @@ class NonRigidTileRegistrar(object):
         with parallel_backend("threading", n_jobs=n_cpu):
             Parallel()(delayed(self.reg_tile)(i, lock) for i in range(self.n_tiles))
 
-        bk_dxdy = warp_tools.stitch_tiles(self.bk_dxdy_tiles, self.expanded_bboxes, self.n_rows, self.n_cols, self.tile_buffer)
-        fwd_dxdy = warp_tools.stitch_tiles(self.fwd_dxdy_tiles, self.expanded_bboxes, self.n_rows, self.n_cols, self.tile_buffer)
+        bk_dxdy = warp_tools.stitch_tiles(
+            self.bk_dxdy_tiles,
+            self.expanded_bboxes,
+            self.n_rows,
+            self.n_cols,
+            self.tile_buffer,
+        )
+        fwd_dxdy = warp_tools.stitch_tiles(
+            self.fwd_dxdy_tiles,
+            self.expanded_bboxes,
+            self.n_rows,
+            self.n_cols,
+            self.tile_buffer,
+        )
 
         return bk_dxdy, fwd_dxdy
 
-    def register(self, moving_img, fixed_img, mask=None, non_rigid_registrar_cls=OpticalFlowWarper,
-                 processing_cls=None, processing_kwargs=None, target_stats=None, **kwargs):
+    def register(
+        self,
+        moving_img,
+        fixed_img,
+        mask=None,
+        non_rigid_registrar_cls=OpticalFlowWarper,
+        processing_cls=None,
+        processing_kwargs=None,
+        target_stats=None,
+        **kwargs,
+    ):
         """
         Register images, warping moving_img to align with fixed_img
 
@@ -1456,8 +1574,15 @@ class NonRigidTileRegistrar(object):
         self.fixed_img = fixed_img
         self.mask = mask
 
-        temp_tile_bboxes = warp_tools.get_grid_bboxes(self.shape, self.tile_wh, self.tile_wh, inclusive=True)
-        self.expanded_bboxes = np.array([warp_tools.expand_bbox(bbox_xywh, self.tile_buffer, self.shape) for bbox_xywh in temp_tile_bboxes])
+        temp_tile_bboxes = warp_tools.get_grid_bboxes(
+            self.shape, self.tile_wh, self.tile_wh, inclusive=True
+        )
+        self.expanded_bboxes = np.array(
+            [
+                warp_tools.expand_bbox(bbox_xywh, self.tile_buffer, self.shape)
+                for bbox_xywh in temp_tile_bboxes
+            ]
+        )
 
         self.n_tiles = len(temp_tile_bboxes)
         self.bk_dxdy_tiles = [None] * self.n_tiles
@@ -1478,5 +1603,3 @@ class NonRigidTileRegistrar(object):
         self.fwd_dxdy = fwd_dxdy
 
         return warped_img, fwd_dxdy, bk_dxdy
-
-

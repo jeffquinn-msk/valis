@@ -36,7 +36,7 @@ print(f"regisration time is {elapsed/60} minutes")
 slide_obj = registrar.get_slide("ihc_2")
 processed_img = slide_obj.pad_cropped_processed_img()
 s = 2
-new_shape = np.array(processed_img.shape[0:2])*s
+new_shape = np.array(processed_img.shape[0:2]) * s
 img = warp_tools.resize_img(slide_obj.image, new_shape)
 
 # In this example, we'll create a mask, based on a larger version of the image used during registration
@@ -48,7 +48,7 @@ mask = gray_img > filters.threshold_li(gray_img)
 warped_mask = slide_obj.warp_img(mask, interp_method="nearest")
 
 # Use the associated Slide to warp larger version of the image
-warped_scaled_img =  slide_obj.warp_img(img)
+warped_scaled_img = slide_obj.warp_img(img)
 
 # Visualise mask overlaid on the warped image
 mask_boundaries = segmentation.find_boundaries(warped_mask)
