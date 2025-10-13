@@ -33,7 +33,6 @@ from itertools import chain
 import cv2
 import matplotlib.pyplot as plt
 from colorama import Fore
-import jpype
 
 from . import feature_matcher
 from . import serial_rigid
@@ -141,16 +140,6 @@ PROCESS_IMG_MSG, NORM_IMG_MSG, DENOISE_MSG = valtils.pad_strings(
 )
 
 
-def init_jvm(jar=None, mem_gb=10):
-    """Initialize JVM for BioFormats"""
-    slide_io.init_jvm(jar=None, mem_gb=10)
-
-
-def kill_jvm():
-    """Kill JVM for BioFormats"""
-    slide_io.kill_jvm()
-
-
 def load_registrar(src_f):
     """Load a Valis object
 
@@ -166,11 +155,7 @@ def load_registrar(src_f):
         Valis object used for registration
 
     """
-    try:
-        registrar = pickle.load(open(src_f, "rb"))
-    except jpype._core.JVMNotRunning:
-        init_jvm()
-        registrar = pickle.load(open(src_f, "rb"))
+    registrar = pickle.load(open(src_f, "rb"))
 
     data_dir = registrar.data_dir
     read_data_dir = os.path.split(src_f)[0]
@@ -1668,8 +1653,8 @@ class Valis(object):
 
     Implements the registration pipeline described in
     "VALIS: Virtual Alignment of pathoLogy Image Series" by Gatenbee et al.
-    This pipeline will read images and whole slide images (WSI) using pyvips,
-    bioformats, or openslide, and so should work with a wide variety of formats.
+    This pipeline will read images and whole slide images (WSI) using pyvips
+    or openslide, and so should work with a wide variety of formats.
     VALIS can perform both rigid and non-rigid registration. The registered slides
     can be saved as ome.tiff slides that can be used in downstream analyses. The
     ome.tiff format is opensource and widely supported, being readable in several
@@ -2697,15 +2682,8 @@ class Valis(object):
             slide_name = valtils.get_name(slide_f)
             if slide_name not in named_reader_dict:
                 if default_reader is None:
-                    try:
-                        slide_reader_cls = slide_io.get_slide_reader(
+                    slide_reader_cls = slide_io.get_slide_reader(
                             slide_f, series=series
-                        )
-                    except Exception as e:
-                        traceback_msg = traceback.format_exc()
-                        msg = f"Attempting to get reader for {slide_f} created the following error:\n{e}"
-                        valtils.print_warning(
-                            msg, rgb=Fore.RED, traceback_msg=traceback_msg
                         )
                 else:
                     slide_reader_cls = default_reader
@@ -2730,12 +2708,7 @@ class Valis(object):
                     # Provided reader, but no kwargs
                     slide_reader = slide_reader_info
                     slide_reader_kwargs = {}
-            try:
-                slide_reader = slide_reader_cls(src_f=slide_f, **slide_reader_kwargs)
-            except Exception as e:
-                traceback_msg = traceback.format_exc()
-                msg = f"Attempting to read {slide_f} created the following error:\n{e}"
-                valtils.print_warning(msg, rgb=Fore.RED, traceback_msg=traceback_msg)
+            slide_reader = slide_reader_cls(src_f=slide_f, **slide_reader_kwargs)
 
             named_reader_dict[slide_name] = slide_reader
 
@@ -4491,13 +4464,8 @@ class Valis(object):
                 img=vips_micro_reg_mask, xywh=mask_bbox_xywh
             )
 
-        if ref_slide.reader.metadata.bf_datatype is not None:
-            np_dtype = slide_tools.BF_FORMAT_NUMPY_DTYPE[
-                ref_slide.reader.metadata.bf_datatype
-            ]
-        else:
-            # Assuming images not read by bio-formats are RGB read using from openslide or png, jpeg, etc...
-            np_dtype = "uint8"
+        # Default to uint8 for RGB images, or get dtype from reader if available
+        np_dtype = "uint8"
 
         displacement_gb = self.size * warp_tools.calc_memory_size_gb(
             full_out_shape, 2, "float32"
@@ -5514,71 +5482,62 @@ class Valis(object):
         """
 
         self.start_time = time()
-        try:
-            print("\n==== Converting images\n")
-            self.convert_imgs(
-                series=self.series, reader_cls=reader_cls, reader_dict=reader_dict
-            )
+        print("\n==== Converting images\n")
+        self.convert_imgs(
+            series=self.series, reader_cls=reader_cls, reader_dict=reader_dict
+        )
 
-            print("\n==== Processing images\n")
-            slide_processors = self.create_img_processor_dict(
-                brightfield_processing_cls=brightfield_processing_cls,
-                brightfield_processing_kwargs=brightfield_processing_kwargs,
-                if_processing_cls=if_processing_cls,
-                if_processing_kwargs=if_processing_kwargs,
-                processor_dict=processor_dict,
-            )
+        print("\n==== Processing images\n")
+        slide_processors = self.create_img_processor_dict(
+            brightfield_processing_cls=brightfield_processing_cls,
+            brightfield_processing_kwargs=brightfield_processing_kwargs,
+            if_processing_cls=if_processing_cls,
+            if_processing_kwargs=if_processing_kwargs,
+            processor_dict=processor_dict,
+        )
 
-            self.brightfield_procsseing_fxn_str = brightfield_processing_cls.__name__
-            self.if_processing_fxn_str = if_processing_cls.__name__
-            self.process_imgs(processor_dict=slide_processors)
+        self.brightfield_procsseing_fxn_str = brightfield_processing_cls.__name__
+        self.if_processing_fxn_str = if_processing_cls.__name__
+        self.process_imgs(processor_dict=slide_processors)
 
-            # print("\n==== Rigid registration\n")
-            rigid_registrar = self.rigid_register()
-            aligned_slide_shape_rc = self.get_aligned_slide_shape(0)
-            self.aligned_slide_shape_rc = aligned_slide_shape_rc
-            self.iter_order = rigid_registrar.iter_order
-            for slide_obj in self.slide_dict.values():
-                slide_obj.aligned_slide_shape_rc = aligned_slide_shape_rc
+        # print("\n==== Rigid registration\n")
+        rigid_registrar = self.rigid_register()
+        aligned_slide_shape_rc = self.get_aligned_slide_shape(0)
+        self.aligned_slide_shape_rc = aligned_slide_shape_rc
+        self.iter_order = rigid_registrar.iter_order
+        for slide_obj in self.slide_dict.values():
+            slide_obj.aligned_slide_shape_rc = aligned_slide_shape_rc
 
-            if self.micro_rigid_registrar_cls is not None:
-                print("\n==== Micro-rigid registration\n")
-                self.micro_rigid_register()
+        if self.micro_rigid_registrar_cls is not None:
+            print("\n==== Micro-rigid registration\n")
+            self.micro_rigid_register()
 
-            if rigid_registrar is False:
-                return None, None, None
-
-            if self.non_rigid_registrar_cls is not None:
-                print("\n==== Non-rigid registration\n")
-                non_rigid_registrar = self.non_rigid_register(
-                    rigid_registrar, slide_processors
-                )
-
-            else:
-                non_rigid_registrar = None
-
-            self._add_empty_slides()
-
-            print("\n==== Measuring error\n")
-            error_df = self.measure_error()
-            self.error_df = error_df
-            self.cleanup()
-
-            pathlib.Path(self.data_dir).mkdir(exist_ok=True, parents=True)
-            f_out = os.path.join(self.data_dir, self.name + "_registrar.pickle")
-            self.reg_f = f_out
-            pickle.dump(self, open(f_out, "wb"))
-
-            data_f_out = os.path.join(self.data_dir, self.name + "_summary.csv")
-            error_df.to_csv(data_f_out, index=False)
-
-        except Exception as e:
-            traceback_msg = traceback.format_exc()
-            valtils.print_warning(e, rgb=Fore.RED, traceback_msg=traceback_msg)
-            if slide_io.ome is not None:
-                # Only kill JVM if it has been initialized
-                kill_jvm()
+        if rigid_registrar is False:
             return None, None, None
+
+        if self.non_rigid_registrar_cls is not None:
+            print("\n==== Non-rigid registration\n")
+            non_rigid_registrar = self.non_rigid_register(
+                rigid_registrar, slide_processors
+            )
+
+        else:
+            non_rigid_registrar = None
+
+        self._add_empty_slides()
+
+        print("\n==== Measuring error\n")
+        error_df = self.measure_error()
+        self.error_df = error_df
+        self.cleanup()
+
+        pathlib.Path(self.data_dir).mkdir(exist_ok=True, parents=True)
+        f_out = os.path.join(self.data_dir, self.name + "_registrar.pickle")
+        self.reg_f = f_out
+        pickle.dump(self, open(f_out, "wb"))
+
+        data_f_out = os.path.join(self.data_dir, self.name + "_summary.csv")
+        error_df.to_csv(data_f_out, index=False)
 
         return rigid_registrar, non_rigid_registrar, error_df
 

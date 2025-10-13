@@ -22,10 +22,9 @@ import itertools
 import xml.etree.ElementTree as elementTree
 import unicodedata
 import ome_types
-import jpype
 from aicspylibczi import CziFile
+from tifffile import TiffFile
 from tqdm import tqdm
-import scyjava
 from difflib import get_close_matches
 import traceback
 
@@ -50,9 +49,6 @@ Default tiff compression method
 
 MAX_TILE_SIZE = 2**10
 """int: maximum tile used to read or write images"""
-
-BF_RDR = "bioformats"
-"""str: Name of Bioformats reader."""
 
 VIPS_RDR = "libvips"
 """str: Name of pyvips reader"""
@@ -111,353 +107,9 @@ VIPS_RGB_FORMATS = [
 """list: List of libvips rgb formats
 """
 
-BF_FORMAT_F = os.path.join(os.path.split(__file__)[0], "data/bf_formats.txt")
-
-
-def read_bf_formats():
-    bf_formats = open(BF_FORMAT_F, "r").read().split("\n")
-
-    return bf_formats
-
-
-if os.path.exists(BF_FORMAT_F):
-    BF_READABLE_FORMATS = read_bf_formats()
-else:
-    BF_READABLE_FORMATS = None
-"""list: File extensions that Bioformats can read.
-   Filled in after initializing JVM"""
-
-ALL_READABLE_FORMATS = list(set([*VIPS_READABLE_FORMATS, *BF_READABLE_FORMATS]))
-OPENSLIDE_ONLY = None
-"""list: File extensions that OpenSlide can read but Bioformats can't.
-   Filled in after initializingJVM"""
-
-FormatTools = None
-"""Bioformats FormatTools.
-   Created after initializing JVM"""
-
-BF_UNIT = None
-"""Bioformats UNITS.
-   Created after initializing JVM."""
-
-BF_MICROMETER = None
-"""Bioformats Unit mircometer object.
-   Created after initializing JVM."""
-
-ome = None
-"""Bioformats ome from bioforamts_jar.
-   Created after initializing JVM."""
-
-loci = None
-"""Bioformats loci from bioforamts_jar.
-   Created after initializing JVM."""
+ALL_READABLE_FORMATS = VIPS_READABLE_FORMATS
 
 OME_TYPES_PARSER = "lxml"
-
-"""
-NOTE: Commented out block is how to use boformats with javabrdige.
-However, on conda, javabridge isn't available for python 3.9.
-If using, remember to put bftools/bioformats_package.jar in the
-source directory.
-
-Keeping the code just in case need to use javabridge again.
-"""
-# Bioformats + Javabridge #
-# ---------------------------------------#
-#
-# try:
-#     bf_jar = os.path.join(pathlib.Path(__file__).parent, "bftools/bioformats_package.jar")
-# except Exception:
-#     # Running interactively
-#     bf_jar = os.path.join(os.getcwd(), "bftools/bioformats_package.jar")
-#
-#
-# def init_jvm_javabridge():
-#     """Initialize JVM for BioFormats
-#     """
-#
-#     if javabridge.get_env() is None:
-#
-#         all_jars = javabridge.JARS + [bf_jar]
-#         javabridge.start_vm(class_path=all_jars, max_heap_size="10G", run_headless=True)
-#
-#         myloglevel = "ERROR"
-#         rootLoggerName = javabridge.get_static_field("org/slf4j/Logger", "ROOT_LOGGER_NAME", "Ljava/lang/String;")
-#         rootLogger = javabridge.static_call("org/slf4j/LoggerFactory", "getLogger",
-#                                             "(Ljava/lang/String;)Lorg/slf4j/Logger;", rootLoggerName)
-#         logLevel = javabridge.get_static_field("ch/qos/logback/classic/Level", myloglevel, "Lch/qos/logback/classic/Level;")
-#         javabridge.call(rootLogger, "setLevel", "(Lch/qos/logback/classic/Level;)V", logLevel)
-#
-#         msg = "JVM has been initialize. Be sure to call valis.kill_jvm() or slide_io.kill_jvm() at the end of your script"
-#         valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
-#
-#         # Fill in global variables that can only be created after initializing the JVM
-#
-#         global FormatTools
-#         global BF_UNIT
-#         global BF_MICROMETER
-#         global BF_READABLE_FORMATS
-#         global OPENSLIDE_ONLY
-#
-#         FormatTools = javabridge.JClassWrapper("loci.formats.FormatTools")
-#         BF_UNIT = javabridge.JClassWrapper("ome.units.UNITS")
-#         BF_MICROMETER = BF_UNIT.MICROMETER
-#         BF_READABLE_FORMATS = get_bf_readable_formats_javabridge()
-#         OPENSLIDE_ONLY = list(set(ALL_OPENSLIDE_READABLE_FORMATS).difference(set(BF_READABLE_FORMATS)))
-#
-#
-# def kill_jvm_javabridge():
-#     """Kill JVM for BioFormats
-#     """
-#     javabridge.kill_vm()
-#     msg = "JVM has been killed. If this was due to an error, then a new Python session will need to be started"
-#     valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
-#
-#
-# def get_bf_readable_formats_javabridge():
-#     """Get extensions of formats that BioFormats can read
-#     """
-#     if javabridge.get_env() is None:
-#         init_jvm_javabridge()
-#
-#     env = javabridge.get_env()
-#     base_reader = javabridge.make_instance('loci/formats/ImageReader', '()V')
-#     readers = javabridge.jutil.call(base_reader, 'getReaders',
-#                                     '()[Lloci/formats/IFormatReader;')
-#     all_readers = env.get_object_array_elements(readers)
-#     readable_formats = []
-#     f_append = readable_formats.append
-#     for format_reader in all_readers:
-#         j_suffixes = javabridge.get_env().get_object_array_elements(
-#             javabridge.jutil.call(
-#                 format_reader, 'getSuffixes',
-#                 '()[Ljava/lang/String;'))
-#
-#         for js in j_suffixes:
-#             suffix = javabridge.to_string(js)
-#             if len(suffix) > 0:
-#                 f_append("." + suffix)
-#
-#     javabridge.jutil.call(base_reader, 'close', '()V')
-#
-#     return readable_formats
-# ---------------------------------------#
-
-# Bioformats/scyjava + Jpype #
-# --------------------#
-
-
-def init_jvm(jar=None, mem_gb=10):
-    """Initialize JVM for BioFormats
-
-    Parameters
-    ----------
-    mem_gb : int
-        Amount of memory, in GB, for JVM
-    """
-    import jpype
-
-    if not jpype.isJVMStarted():
-        global FormatTools
-        global BF_MICROMETER
-        global OPENSLIDE_ONLY
-        global BF_READABLE_FORMATS
-        global ome
-        global loci
-
-        if jar is None:
-
-            # Check if jar is bundled with source code, like in a Docker image
-            # Can use instead of using maven to download, which requires an unblocked connection
-            parent_dir = pathlib.Path(__file__).parent.resolve()
-            local_bf_jar = os.path.join(parent_dir, "bioformats_package.jar")
-            if os.path.exists(local_bf_jar):
-                jar = local_bf_jar
-
-        if jar is not None:
-            jpype.addClassPath(jar)
-            jpype.startJVM(f"-Djava.awt.headless=true -Xmx{mem_gb}G", classpath=jar)
-
-        else:
-            scyjava.config.endpoints.extend(["ome:formats-gpl", "ome:jxrlib-all"])
-            scyjava.start_jvm([f"-Xmx{mem_gb}G"])
-
-        loci = jpype.JPackage("loci")
-        ome = jpype.JPackage("ome")
-        loci.common.DebugTools.setRootLevel("ERROR")
-
-        FormatTools = loci.formats.FormatTools
-        BF_MICROMETER = ome.units.UNITS.MICROMETER
-        BF_READABLE_FORMATS = get_bf_readable_formats()
-        OPENSLIDE_ONLY = list(
-            set(ALL_OPENSLIDE_READABLE_FORMATS).difference(set(BF_READABLE_FORMATS))
-        )
-
-        # Save formats in case using a different version of Bioformats
-        bf_data_parent_dir = os.path.split(BF_FORMAT_F)[0]
-        pathlib.Path(bf_data_parent_dir).mkdir(exist_ok=True, parents=True)
-        with open(BF_FORMAT_F, "w") as f:
-            for line in BF_READABLE_FORMATS:
-                f.write(f"{line}\n")
-
-        msg = (
-            f"JVM has been initialized. "
-            f"Be sure to call registration.kill_jvm() "
-            f"or slide_io.kill_jvm() at the end of your script."
-        )
-        valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
-
-
-def kill_jvm():
-    """Kill JVM for BioFormats"""
-    try:
-        scyjava.shutdown_jvm()
-        msg = "JVM has been killed. If this was due to an error, then a new Python session will need to be started"
-        valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
-
-    except NameError:
-        pass
-
-
-def get_bioformats_version():
-    v = loci.formats.FormatTools.VERSION
-
-    return v
-
-
-def get_bf_readable_formats():
-    """Get extensions of formats that BioFormats can read
-
-    Returns
-    -------
-    readable_formats : list of str
-        List of formats that can be read by Bioformats
-
-    """
-
-    if not jpype.isJVMStarted():
-        init_jvm()
-
-    baseReader = loci.formats.ImageReader()
-    readers = baseReader.getReaders()
-    read_range = range(1, readers.length)
-    readable_formats = [
-        "." + str(f)
-        for l in [list(readers[i].getSuffixes()) for i in read_range]
-        for f in l
-        if len(f) > 0
-    ]
-    baseReader.close()
-
-    return readable_formats
-
-
-def bf_to_numpy_dtype(bf_pixel_type, little_endian):
-    """Get numpy equivalent of the bioformats pixel type
-
-    Adapted from the python-bioformats package
-
-    Parameters
-    ----------
-    bf_pixel_type : int
-        Integer indicating the Bioformats pixel type
-
-    little_endian : bool
-        Whether or not the image is little endian
-
-    Returns
-    -------
-    dtype : numpy.dtype
-        Numpy dtype
-
-    scale : int
-        Maximum value of `dtype`
-
-    """
-
-    if bf_pixel_type == FormatTools.INT8:
-        # FormatTools.INT8 = 0
-        dtype = np.int8
-        scale = 255
-
-    elif bf_pixel_type == FormatTools.UINT8:
-        # FormatTools.UINT8 = 1
-        dtype = np.uint8
-        scale = 255
-
-    elif bf_pixel_type == FormatTools.UINT16:
-        # FormatTools.UINT16 = 3
-        dtype = "<u2" if little_endian else ">u2"
-        scale = 65535
-
-    elif bf_pixel_type == FormatTools.INT16:
-        # FormatTools.INT16 = 2
-        dtype = "<i2" if little_endian else ">i2"
-        scale = 65535
-
-    elif bf_pixel_type == FormatTools.UINT32:
-        # FormatTools.UINT32 = 5
-        dtype = "<u4" if little_endian else ">u4"
-        scale = 2**32
-
-    elif bf_pixel_type == FormatTools.INT32:
-        # FormatTools.INT32 = 4
-        dtype = "<i4" if little_endian else ">i4"
-        scale = 2**32 - 1
-
-    elif bf_pixel_type == FormatTools.FLOAT:
-        # FormatTools.FLOAT = 6
-        dtype = "<f4" if little_endian else ">f4"
-        scale = 1
-
-    elif bf_pixel_type == FormatTools.DOUBLE:
-        # FormatTools.DOUBLE = 7
-        dtype = "<f8" if little_endian else ">f8"
-        scale = 1
-
-    return dtype, scale
-
-
-def vips2bf_dtype(vips_format):
-    """Get bioformats equivalent of the pyvips pixel type
-
-    Parameters
-    ----------
-    vips_format : str
-        Format of the pyvips.Image
-
-    Returns
-    -------
-    bf_dtype : str
-        String format of Bioformats datatype
-
-    """
-
-    np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[vips_format]
-    bf_dtype = slide_tools.NUMPY_FORMAT_BF_DTYPE[str(np_dtype().dtype)]
-
-    return bf_dtype
-
-
-def bf2vips_dtype(bf_dtype):
-    """Get bioformats equivalent of the pyvips pixel type
-
-    Parameters
-    ----------
-    bf_dtype : str
-        String format of Bioformats datatype
-
-    Returns
-    -------
-    vips_format : str
-        Format of the pyvips.Image
-
-    """
-
-    np_type = slide_tools.BF_FORMAT_NUMPY_DTYPE[bf_dtype]
-    vips_format = slide_tools.NUMPY_FORMAT_VIPS_DTYPE[np_type]
-
-    return vips_format
 
 
 def check_czi_jpegxr(src_f):
@@ -539,24 +191,14 @@ def get_ome_obj(x):
     except Exception as e:
         # Sometimes the image description found by `ome_types.from_tiff`
         # does not contain the ome-xml. Seems to be the case for ImageJ exports, at least
-        if is_file:
-            try:
-                bf_rdr, bf_meta = get_bioformats_reader_and_meta(x)
-                meta_xml = bf_meta.dumpXML()
-                meta_xml = str(meta_xml)
-                ome_obj = ome_types.from_xml(meta_xml)
-                if len(ome_obj.images) == 0:
-                    ome_obj = ome_types.from_xml(meta_xml, parser=OME_TYPES_PARSER)
-
-            except Exception as e:
-                if ome_fxn == ome_types.from_tiff:
-                    valtils.print_warning(
-                        f"Could not get OME-XML for image {x}, due to the following error: {e}"
-                    )
-                else:
-                    valtils.print_warning(
-                        f"Could not get OME-XML, due to the following error: {e}"
-                    )
+        if ome_fxn == ome_types.from_tiff:
+            valtils.print_warning(
+                f"Could not get OME-XML for image {x}, due to the following error: {e}"
+            )
+        else:
+            valtils.print_warning(
+                f"Could not get OME-XML, due to the following error: {e}"
+            )
 
     return ome_obj
 
@@ -582,45 +224,14 @@ def check_to_use_vips(src_f):
     return can_use_pyvips
 
 
-def check_to_use_bioformats(src_f, series=None):
-    """Check if bioformats can be used to read metadata and/or image"""
-    img_format = slide_tools.get_slide_extension(src_f)
-    use_bf = img_format in BF_READABLE_FORMATS
-
-    can_get_metadata = use_bf
-    can_read_img = use_bf
-    if use_bf:
-
-        err_msg = f"Error using Bioformats to read {os.path.split(src_f)[-1]}. Will try to use a different reader"
-        try:
-            # Try to get metadata
-            bf_reader = BioFormatsSlideReader(src_f, series=series)
-        except Exception as e:
-            valtils.print_warning(err_msg)
-            can_get_metadata = False
-            can_read_img = False
-
-    if can_get_metadata:
-        try:
-            # Can get metadata, try reading small slice
-            test_read_level = len(bf_reader.metadata.slide_dimensions) - 1
-            bf_reader.slide2vips(level=test_read_level, xywh=(0, 0, 5, 5))
-        except Exception as e:
-            valtils.print_warning(err_msg)
-            can_read_img = False
-
-    return can_get_metadata, can_read_img
-
-
-def check_flattened_pyramid_tiff(src_f, check_with_bf=False):
+def check_flattened_pyramid_tiff(src_f):
     """Determine if a tiff is a flattened pyramid
 
     Determines if a slide is pyramid where each page/plane is a channel
     in the pyramid. An example would be one where the plane dimensions are
     something like
     [(600, 600), (600, 600), (600, 600), (300, 300), (300, 300), (300, 300)]
-    for a 3 channel image with  2  pyramid levels. It seems that bioformats
-    does not recognize these as pyramid images.
+    for a 3 channel image with  2  pyramid levels.
 
     Parameters
     ----------
@@ -631,9 +242,6 @@ def check_flattened_pyramid_tiff(src_f, check_with_bf=False):
     -------
     is_flattended_pyramid : bool
         Whether  or not the slide is a flattened pyramid
-
-    can_use_bf : bool
-        Whether or not Bioformats will read the slide in the same way
 
     slide_dimensions : ndarray
         Dimensions (width, height) for each level in the  pyramid
@@ -651,7 +259,6 @@ def check_flattened_pyramid_tiff(src_f, check_with_bf=False):
     vips_fields = vips_img.get_fields()
 
     is_flattended_pyramid = False
-    can_use_bf = False
 
     if "n-pages" in vips_fields:
         n_pages = vips_img.get("n-pages")
@@ -717,18 +324,10 @@ def check_flattened_pyramid_tiff(src_f, check_with_bf=False):
             n_channels = most_common_channel_count
 
     else:
-        return is_flattended_pyramid, can_use_bf, None, None, None
-    # Now check if Bioformats reads it similarly #
-    if check_with_bf:
-        with valtils.HiddenPrints():
-            bf_reader = BioFormatsSlideReader(src_f)
-        bf_levels = len(bf_reader.metadata.slide_dimensions)
-        bf_channels = bf_reader.metadata.n_channels
-        can_use_bf = bf_levels >= len(slide_dimensions) and bf_channels == n_channels
+        return is_flattended_pyramid, None, None, None
 
     return (
         is_flattended_pyramid,
-        can_use_bf,
         slide_dimensions,
         levels_start_idx,
         n_channels,
@@ -766,8 +365,6 @@ def check_xml_img_match(xml, vips_img, metadata, series=0):
     vips_nc = vips_img.bands
     vips_size_x = vips_img.width
     vips_size_y = vips_img.height
-    np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[vips_img.format]
-    vips_bf_dtype = slide_tools.NUMPY_FORMAT_BF_DTYPE[str(np_dtype().dtype)].lower()
 
     if total_pages != vips_img.bands:
         msg = (
@@ -790,31 +387,7 @@ def check_xml_img_match(xml, vips_img, metadata, series=0):
         if ome_size_y is not None:
             valtils.print_warning(msg)
 
-    if ome_dtype != vips_bf_dtype:
-        msg = f"For {metadata.name}, the ome-xml states the image type should be {ome_dtype}, but the image has type of {vips_bf_dtype}"
-        metadata.bf_datatype = vips_bf_dtype
-        metadata.bf_pixel_type = slide_tools.BF_DTYPE_PIXEL_TYPE[vips_bf_dtype]
-
-        if ome_dtype is not None:
-            valtils.print_warning(msg)
-
     return metadata
-
-
-def get_bioformats_reader_and_meta(src_f):
-    init_jvm()
-    rdr = loci.formats.ImageReader()
-    factory = loci.common.services.ServiceFactory()
-    OMEXMLService_class = loci.formats.services.OMEXMLService
-
-    service = factory.getInstance(OMEXMLService_class)
-    ome_meta = service.createOMEXMLMetadata()
-    rdr.setMetadataStore(ome_meta)
-    rdr.setFlattenedResolutions(False)
-    rdr.setId(src_f)
-    meta = rdr.getMetadataStore()
-
-    return rdr, meta
 
 
 def metadata_from_xml(xml, name, server, series=0, metadata=None):
@@ -861,8 +434,6 @@ def metadata_from_xml(xml, name, server, series=0, metadata=None):
     metadata.n_z = ome_img.pixels.size_z
     metadata.n_t = ome_img.pixels.size_t
     metadata.original_xml = ome_info.to_xml()
-    metadata.bf_datatype = ome_img.pixels.type.value
-    metadata.bf_pixel_type = slide_tools.BF_DTYPE_PIXEL_TYPE[metadata.bf_datatype]
 
     if not metadata.is_rgb:
         if has_channel_info:
@@ -889,7 +460,7 @@ def openslide_desc_2_omexml(vips_img):
     x, y, z, c, t = get_shape_xyzct(shape_wh=img_shape_wh, n_channels=vips_img.bands)
 
     np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[vips_img.format]
-    bf_datatype = slide_tools.NUMPY_FORMAT_BF_DTYPE[str(np_dtype().dtype)]
+    ome_datatype = slide_tools.NUMPY_FORMAT_OME_DTYPE[str(np_dtype().dtype)]
 
     new_img = ome_types.model.Image(
         id=f"Image:0",
@@ -900,7 +471,7 @@ def openslide_desc_2_omexml(vips_img):
             size_z=z,
             size_c=c,
             size_t=t,
-            type=bf_datatype,
+            type=ome_datatype,
             dimension_order="XYZCT",
             physical_size_x=eval(vips_img.get("openslide.mpp-x")),
             physical_size_x_unit=MICRON_UNIT,
@@ -960,9 +531,6 @@ class MetaData(object):
     original_xml : str
         Xml string created by bio-formats
 
-    bf_datatype : str
-        String indicating bioformats image datatype
-
     optimal_tile_wh : int
         Tile width and height used to open and/or save image
 
@@ -995,8 +563,6 @@ class MetaData(object):
         self.n_z = 1
         self.n_t = 1
         self.original_xml = None
-        self.bf_datatype = None
-        self.bf_pixel_type = None
         self.is_little_endian = None
         self.optimal_tile_wh = 1024
 
@@ -1235,478 +801,6 @@ class SlideReader(object):
         """
 
 
-class BioFormatsSlideReader(SlideReader):
-    """Read slides using BioFormats
-
-    Uses the packages jpype and bioformats-jar
-
-    """
-
-    def __init__(self, src_f, series=None, *args, **kwargs):
-        """
-        Parameters
-        -----------
-        src_f : str
-            Path to slide
-
-        series : int
-            The series to be read. If `series` is None, the the `series`
-            will be set to the series associated with the largest image.
-
-        """
-
-        init_jvm()
-
-        self.meta_list = [None]
-        super().__init__(src_f=src_f, *args, **kwargs)
-
-        try:
-            self.meta_list = self.create_metadata()
-        except Exception as e:
-            traceback_msg = traceback.format_exc()
-            valtils.print_warning(e, traceback_msg=traceback_msg)
-            kill_jvm()
-
-        self.n_series = len(self.meta_list)
-        if series is None:
-            img_areas = [
-                np.multiply(*meta.slide_dimensions[0]) for meta in self.meta_list
-            ]
-            series = np.argmax(img_areas)
-            if len(img_areas) > 1:
-                msg = (
-                    f"No series provided. "
-                    f"Selecting series with largest image, "
-                    f"which is series {series}"
-                )
-
-                valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
-
-        self._series = series
-        self.series = series
-
-    def _set_series(self, series):
-        self._series = series
-        self.metadata = self.meta_list[series]
-
-    def _get_series(self):
-        return self._series
-
-    series = property(fget=_get_series, fset=_set_series, doc="Slide series")
-
-    def get_tiles_parallel(self, level, tile_bbox_list, pixel_type, series=0, z=0, t=0):
-        """Get tiles to slice from the slide"""
-
-        n_tiles = len(tile_bbox_list)
-        tile_array = [None] * n_tiles
-
-        def tile2vips_threaded(idx):
-            xywh = tile_bbox_list[idx]
-            # javabridge.attach()
-            # jpype.attachThreadToJVM()
-            jpype.java.lang.Thread.attach()
-            try:
-                tile = self.slide2image(level, series, xywh=tuple(xywh), z=z, t=t)
-            except Exception as e:
-                traceback_msg = traceback.format_exc()
-                valtils.print_warning(e, traceback_msg=traceback_msg, rgb=Fore.RED)
-                pass
-            # javabridge.detach()
-            # jpype.detachThreadFromJVM()
-            jpype.java.lang.Thread.detach()
-
-            tile_array[idx] = slide_tools.numpy2vips(
-                tile, self.metadata.pyvips_interpretation
-            )
-
-        n_cpu = valtils.get_ncpus_available() - 1
-        res = pqdm(
-            range(n_tiles), tile2vips_threaded, n_jobs=n_cpu, unit="tiles", leave=None
-        )
-
-        return tile_array
-
-    def slide2vips(
-        self, level, series=None, xywh=None, tile_wh=None, z=0, t=0, *args, **kwargs
-    ):
-        """Convert slide to pyvips.Image
-
-        This method uses Bioformats to slice tiles from the slides, and then
-        stitch them together using pyvips.
-
-        Parameters
-        -----------
-        level : int
-            Pyramid level
-
-        series : int, optional
-            Series number. Defaults to 0
-
-        xywh : tuple of int, optional
-            The region to be sliced from the slide. If None,
-            then the entire slide will be converted. Otherwise
-            xywh is the (top left x, top left y, width, height) of
-            the region to be sliced.
-
-        tile_wh : int, optional
-            Size of tiles used to contstruct `vips_slide`
-
-        Returns
-        -------
-        vips_slide : pyvips.Image
-            An  of the slide or the region defined by xywh
-
-        """
-
-        if level < 0:
-            valtils.print_warning(f"level is negative {level} for {self.src_f}")
-        level = max(0, level)
-
-        if series is None:
-            series = self.series
-
-        else:
-            self.series = series
-
-        rdr, meta = self._get_bf_objects()
-        pixel_type, drange = bf_to_numpy_dtype(rdr.getPixelType(), rdr.isLittleEndian())
-
-        slide_shape_wh = self.metadata.slide_dimensions[level]
-
-        if tile_wh is None:
-            tile_wh = rdr.getOptimalTileWidth()
-        rdr.close()
-
-        tile_wh = min(tile_wh, MAX_TILE_SIZE)
-        if np.any(slide_shape_wh < tile_wh):
-            tile_wh = min(slide_shape_wh)
-
-        tile_bbox = warp_tools.get_grid_bboxes(
-            slide_shape_wh[::-1], tile_wh, tile_wh, inclusive=True
-        )
-
-        n_across = len(np.unique(tile_bbox[:, 0]))
-
-        print(f"Converting slide to pyvips image")
-        vips_slide = pyvips.Image.arrayjoin(
-            self.get_tiles_parallel(
-                level,
-                tile_bbox_list=tile_bbox,
-                pixel_type=pixel_type,
-                series=series,
-                z=z,
-                t=t,
-            ),
-            across=n_across,
-        ).crop(0, 0, *slide_shape_wh)
-        if xywh is not None:
-            vips_slide = vips_slide.extract_area(*xywh)
-
-        return vips_slide
-
-    def slide2image(self, level, series=None, xywh=None, z=0, t=0, *args, **kwargs):
-        """Convert slide to image
-
-        Parameters
-        -----------
-        level : int
-            Pyramid level
-
-        series : int, optional
-            Series number. Defaults to 1
-
-        xywh : tuple of int, optional
-            The region to be sliced from the slide. If None,
-            then the entire slide will be converted. Otherwise
-            xywh is the (top left x, top left y, width, height) of
-            the region to be sliced.
-
-        Returns
-        -------
-        img : ndarray
-            An image of the slide or the region defined by xywh
-
-        """
-        if level < 0:
-            valtils.print_warning(
-                f"level is negative {level} for {self.src_f}. Should be >= 0"
-            )
-        level = max(0, level)
-
-        if series is None:
-            series = self.series
-
-        else:
-            self.series = series
-
-        rdr, meta = self._get_bf_objects()
-
-        rdr.setSeries(series)
-        rdr.setResolution(level)
-        if xywh is None:
-            x = 0
-            y = 0
-            w = rdr.getSizeX()
-            h = rdr.getSizeY()
-            xywh = (x, y, w, h)
-
-        if rdr.isRGB():
-            img = self._read_rgb(rdr=rdr, xywh=xywh, z=z, t=t)
-
-        else:
-            img = self._read_multichannel(rdr=rdr, xywh=xywh, z=z, t=t)
-
-        rdr.close()
-
-        return img
-
-    def create_metadata(self):
-        rdr, meta = self._get_bf_objects()
-        meta_xml = meta.dumpXML()
-        try:
-            n_series = rdr.getSeriesCount()
-            i0 = rdr.getSeries()
-            slide_format = f"{BF_RDR}_{rdr.getFormat()}"
-            meta_list = [None] * n_series
-            for i in range(n_series):
-                rdr.setSeries(i)
-                series_name = str(meta.getImageName(i))
-                temp_name = f"{os.path.split(self.src_f)[1]}_{series_name}".strip("_")
-                full_name = f"{temp_name}_Series_{i}"
-                full_name = full_name.replace(" ", "_")
-
-                series_meta = MetaData(full_name, slide_format, series=i)
-
-                series_meta.is_rgb = self._check_rgb(rdr)
-                series_meta.channel_names = self._get_channel_names(rdr, meta)
-                series_meta.n_channels = int(rdr.getSizeC())
-                series_meta.n_z = rdr.getSizeZ()
-                series_meta.n_t = rdr.getSizeT()
-                series_meta.slide_dimensions = self._get_slide_dimensions(rdr)
-                if series_meta.is_rgb:
-                    series_meta.pyvips_interpretation = "srgb"
-                elif series_meta.n_channels == 1:
-                    series_meta.pyvips_interpretation = "b-w"
-                else:
-                    series_meta.pyvips_interpretation = "multiband"
-
-                series_meta.pixel_physical_size_xyu = self._get_pixel_physical_size(
-                    rdr, meta
-                )
-                series_meta.bf_pixel_type = str(rdr.getPixelType())
-                series_meta.is_little_endian = rdr.isLittleEndian()
-                series_meta.original_xml = str(meta_xml)
-                series_meta.bf_datatype = str(
-                    FormatTools.getPixelTypeString(rdr.getPixelType())
-                )
-                series_meta.optimal_tile_wh = int(rdr.getOptimalTileWidth())
-
-                meta_list[i] = series_meta
-
-            i0 = rdr.setSeries(i0)
-            rdr.close()
-
-        except Exception as e:
-            traceback_msg = traceback.format_exc()
-            valtils.print_warning(e, traceback_msg=traceback_msg)
-            rdr.close()
-
-        return meta_list
-
-    def _read_rgb(self, rdr, xywh, z=0, t=0):
-
-        np_dtype, drange = bf_to_numpy_dtype(rdr.getPixelType(), rdr.isLittleEndian())
-
-        buffer = rdr.openBytes(0, *xywh)
-        img = np.frombuffer(bytes(buffer), np_dtype)
-        nrgb = rdr.getRGBChannelCount()
-        _, _, w, h = xywh
-
-        if rdr.isInterleaved():
-            img = img.reshape(h, w, nrgb)
-        else:
-            img = img.reshape(nrgb, h, w)
-            img = np.transpose(img, (1, 2, 0))
-
-        if img.shape[2] > 3:
-            img = img[0:3]
-
-        return img
-
-    def _read_multichannel(self, rdr, xywh, z=0, t=0):
-        _, _, w, h = xywh
-        n_channels = rdr.getSizeC()
-        np_dtype, drange = bf_to_numpy_dtype(rdr.getPixelType(), rdr.isLittleEndian())
-
-        if n_channels > 1:
-            img = np.zeros((h, w, n_channels), dtype=np_dtype)
-        else:
-            img = None
-
-        for i in range(n_channels):
-            idx = rdr.getIndex(z, i, t)  # ZCT
-            buffer = rdr.openBytes(idx, *xywh)
-            if img is None:
-                img = np.frombuffer(bytes(buffer), np_dtype).reshape((h, w))
-            else:
-                img[..., i] = np.frombuffer(bytes(buffer), np_dtype).reshape((h, w))
-
-        return img
-
-    def _get_bf_objects(self):
-        """Get Bioformat objects
-
-        Returns
-        -------
-
-        rdr : IFormatReader
-            IFormatReader object that is a property of a bioformats.ImageReader.
-
-        meta : loci.formats.ome.OMEPyramidStore
-            Used to read metadata
-
-        Notes
-        -----
-        Be sure to close rdr with rdr.close() when it's no longer needed
-
-        """
-        # Javabridge #
-        # ------------#
-        # env = javabridge.jutil.get_env()
-        # rdr = javabridge.JWrapper(javabridge.make_instance(
-        #                           'loci/formats/ImageReader', '()V')
-        #                           )
-
-        # factory = javabridge.JWrapper(javabridge.make_instance(
-        #                              'loci/common/services/ServiceFactory', '()V')
-        #                              )
-
-        # OMEXMLService_class = \
-        #     env.find_class('loci/formats/services/OMEXMLService').as_class_object()
-
-        # Jpype #
-        # -------#
-
-        rdr, meta = get_bioformats_reader_and_meta(self.src_f)
-
-        return rdr, meta
-
-    def _check_rgb(self, rdr):
-        """Determine if image is RGB
-
-        Returns
-        -------
-        is_rgb : bool
-            Whether or not the image is RGB
-
-        """
-
-        return rdr.isRGB()
-
-    def _get_slide_dimensions(self, rdr):
-        """Get dimensions of slide at all pyramid levels
-
-        Parameters
-        ----------
-        rdr : IFormatReader
-            IFormatReader object
-
-        Returns
-        -------
-        slide_dims : ndarray
-            Dimensions of all images in the pyramid (width, height).
-
-        Notes
-        -----
-        Using javabridge and python-bioformmats, this can be accessed as follows
-        `
-        bf_slide = bioformats.ImageReader(slide_f)
-        bf_img_reader = javabridge.JWrapper(bf_slide.rdr.o)
-
-        Or
-        with bioformats.ImageReader(slide_f) as bf_slide:
-            bf_img_reader = javabridge.JWrapper(bf_slide.rdr.o)
-
-        """
-
-        r0 = rdr.getResolution()
-        n_res = rdr.getResolutionCount()
-        slide_dims = [None] * n_res
-        for j in range(n_res):
-            rdr.setResolution(j)
-            slide_dims[j] = [rdr.getSizeX(), rdr.getSizeY()]
-
-        slide_dims = np.array(slide_dims)
-
-        rdr.setResolution(r0)
-
-        return slide_dims
-
-    def _get_pixel_physical_size(self, rdr, meta):
-        """Get resolutions for each series
-
-        Parameters
-        ----------
-        rdr : IFormatReader
-            IFormatReader object.
-
-        meta : loci.formats.ome.OMEPyramidStore
-            Used to read metadata
-
-        Returns
-        -------
-        res_xyu : tuple
-            Physical size per pixel and the unit, e.g. u'\u00b5m'
-
-        """
-        current_series = rdr.getSeries()
-        temp_x_res = meta.getPixelsPhysicalSizeX(current_series)
-        if temp_x_res is not None:
-            x_res = float(temp_x_res.value(BF_MICROMETER).doubleValue())
-            y_res = float(
-                meta.getPixelsPhysicalSizeY(current_series)
-                .value(BF_MICROMETER)
-                .doubleValue()
-            )
-            phys_unit = str(BF_MICROMETER.getSymbol())
-        else:
-            x_res = 1
-            y_res = 1
-            phys_unit = PIXEL_UNIT
-
-        res_xyu = (x_res, y_res, phys_unit)
-
-        return res_xyu
-
-    def _get_channel_names(self, rdr, meta):
-        """Get channel names of image
-        Parameters
-        ----------
-        rdr : IFormatReader
-            IFormatReader object
-
-        meta : loci.formats.ome.OMEPyramidStore
-            Used to read metadata.
-
-        Returns
-        -------
-        channel_names : list
-            List of channel names.
-
-        """
-
-        nc = rdr.getSizeC()
-        current_series = rdr.getSeries()
-        if rdr.isRGB():
-            channel_names = None
-        else:
-            channel_names = [""] * nc
-            for i in range(nc):
-                channel_names[i] = str(meta.getChannelName(current_series, i))
-
-        return channel_names
-
-
 class VipsSlideReader(SlideReader):
     """Read slides using pyvips
     Pyvips includes OpenSlide and so can read those formats as well.
@@ -1737,7 +831,6 @@ class VipsSlideReader(SlideReader):
         self.verify_xml()
 
     def create_metadata(self):
-
         vips_img = pyvips.Image.new_from_file(self.src_f)
 
         if "image-description" in vips_img.get_fields():
@@ -1784,13 +877,12 @@ class VipsSlideReader(SlideReader):
             slide_meta.channel_names = None
 
         if self.is_ome:
-            toilet_roll = pyvips.Image.new_from_file(self.src_f, n=-1, subifd=-1)
-            page = pyvips.Image.new_from_file(
-                self.src_f, n=1, subifd=-1, access="random"
-            )
-            n_pages = toilet_roll.height / page.height
+            with TiffFile(self.src_f) as tif:
+                n_pages = len(tif.pages)
             if n_pages > 1:
                 slide_meta.n_channels = int(n_pages)
+        else:
+            slide_meta.n_channels = 1
 
         return slide_meta
 
@@ -1798,11 +890,8 @@ class VipsSlideReader(SlideReader):
         img_xml = self.metadata.original_xml
         if img_xml is not None and not self.use_openslide:
             # Don't check openslide images, as metadata counts alpha channel
-            try:
-                ome_info = get_ome_obj(img_xml)
-                assert len(ome_info.images) > 0
-            except:
-                return None
+            ome_info = get_ome_obj(img_xml)
+            assert len(ome_info.images) > 0
             read_img = self.slide2vips(0)
             self.metadata = check_xml_img_match(
                 xml=img_xml,
@@ -1817,13 +906,6 @@ class VipsSlideReader(SlideReader):
             vips_img, n_channels=slide_meta.n_channels
         )
         slide_meta.pixel_physical_size_xyu = self._get_pixel_physical_size(vips_img)
-        np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[vips_img.format]
-        slide_meta.bf_datatype = slide_tools.NUMPY_FORMAT_BF_DTYPE[
-            str(np_dtype().dtype)
-        ]
-        slide_meta.bf_pixel_type = slide_tools.BF_DTYPE_PIXEL_TYPE[
-            slide_meta.bf_datatype
-        ]
         slide_meta.is_little_endian = sys.byteorder.startswith("l")
         slide_meta.original_xml = self._get_xml(vips_img)
         slide_meta.optimal_tile_wh = get_tile_wh(
@@ -1831,12 +913,6 @@ class VipsSlideReader(SlideReader):
         )
 
         return slide_meta
-
-    def _get_metadata_bf(self):
-        with valtils.HiddenPrints():
-            bf_reader = BioFormatsSlideReader(self.src_f)
-
-        return bf_reader.metadata
 
     def _slide2vips_ome_one_series(self, level, *args, **kwargs):
         """Use pyvips to read an ome.tiff image that has only 1 series
@@ -1863,17 +939,15 @@ class VipsSlideReader(SlideReader):
 
         """
 
-        toilet_roll = pyvips.Image.new_from_file(self.src_f, n=-1, subifd=level - 1)
         page = pyvips.Image.new_from_file(
             self.src_f, n=1, subifd=level - 1, access="random"
         )
         if page.interpretation in VIPS_RGB_FORMATS:
             vips_slide = page
         else:
-            page_height = page.height
             pages = [
-                toilet_roll.crop(0, y, toilet_roll.width, page_height)
-                for y in range(0, toilet_roll.height, page_height)
+                pyvips.Image.new_from_file(self.src_f, page=p-1)
+                for p in range(self.metadata.n_channels)
             ]
 
             vips_slide = pages[0].bandjoin(pages[1:])
@@ -1913,10 +987,6 @@ class VipsSlideReader(SlideReader):
             vips_slide = pyvips.Image.new_from_file(
                 self.src_f, level=level, autocrop=True, rgb=False, access="random"
             )[0:3]
-
-        elif self.is_ome:
-            vips_slide = self._slide2vips_ome_one_series(level=level, *args, **kwargs)
-
         else:
             try:
                 vips_slide = pyvips.Image.new_from_file(
@@ -2079,12 +1149,6 @@ class VipsSlideReader(SlideReader):
 
         return slide_dimensions
 
-    def _get_slide_dimensions_ometiff_bf(self, *args):
-        with valtils.HiddenPrints():
-            bf_reader = BioFormatsSlideReader(self.src_f)
-
-        return np.array(bf_reader.metadata.slide_dimensions)
-
     def _get_slide_dimensions_ometiff(self, vips_img, *args):
 
         if "n-subifds" not in vips_img.get_fields():
@@ -2236,29 +1300,24 @@ class FlattenedPyramidReader(VipsSlideReader):
     An example would be one where the plane dimensions are
     something like
     [(600, 600), (600, 600), (600, 600), (300, 300), (300, 300), (300, 300)]
-    for a 3 channel image with  2  pyramid levels. It seems that bioformats
-    does not recognize these as pyramid images.
+    for a 3 channel image with  2  pyramid levels.
 
     """
 
     def __init__(self, src_f, *args, **kwargs):
         super().__init__(src_f, *args, **kwargs)
-        # BF Datatype may not match min/max values in the image
-        # e.g. datatype is uint32, but min and max are floats
         self.metadata.img_dtype = None
-        self.metadata.img_dtype = self._get_dtype()
 
     def create_metadata(self):
         (
             is_flattended_pyramid,
-            bf_reads_flat,
             slide_dimensions,
             levels_start_idx,
             n_channels,
         ) = check_flattened_pyramid_tiff(self.src_f)
 
         assert (
-            is_flattended_pyramid and not bf_reads_flat
+            is_flattended_pyramid
         ), "Trying to use FlattenedPyramidReader but slide is not a flattened pyramid"
 
         meta_name = f"{os.path.split(self.src_f)[1]}_Series(0)".strip("_")
@@ -2343,21 +1402,6 @@ class FlattenedPyramidReader(VipsSlideReader):
 
         if xywh is not None:
             vips_slide = vips_slide.extract_area(*xywh)
-
-        if (
-            self.metadata.bf_datatype != self.metadata.img_dtype
-            and self.metadata.img_dtype is not None
-        ):
-            # Min/max/response datatypes in xml don't match values image.
-            msg = (
-                f"Bio-formats datatype is {self.metadata.bf_datatype}, "
-                f"but min/max/response values in xml are {self.metadata.img_dtype}. "
-                f"Converting to {self.metadata.img_dtype}"
-            )
-            valtils.print_warning(msg)
-            vips_dtype = bf2vips_dtype(self.metadata.img_dtype)
-            vips_slide = vips_slide.copy(format=vips_dtype)
-            self.bf_datatype = self.metadata.img_dtype
 
         if vips_slide.bands == 1:
             vips_slide = vips_slide.copy(interpretation="b-w")
@@ -2469,79 +1513,6 @@ class FlattenedPyramidReader(VipsSlideReader):
             n_pages = 0
 
         return n_pages
-
-    def _get_dtype(self):
-        """Get Bio-Formats datatype from values in metadata.
-
-        For example, BF metadata may have image datatype as
-        uint32, but in the image descriiption, min/max/resppnse,
-        are floats. This will determine if the slide should be cast
-        to a different dataatype to match values in metadata.
-
-        """
-        smallest_level = len(self.metadata.slide_dimensions) - 1
-        vips_img = self.slide2vips(smallest_level)
-        vips_fields = vips_img.get_fields()
-        current_bf_dtype = vips2bf_dtype(vips_img.format)
-        bf_type = current_bf_dtype
-        if "n-pages" in vips_fields:
-            page = pyvips.Image.new_from_file(self.src_f, page=0)
-            page_metadata = page.get("image-description")
-
-            page_soup = BeautifulSoup(page_metadata, features="lxml")
-            # channels = page_soup.findAll("channel") # deprecated
-            # response = page_soup.findAll("response") # deprecated
-            channels = page_soup.find_all("channel")
-            response = page_soup.find_all("response")
-            if len(channels) > 0:
-                # Indica Labs tiff
-                dtypes = [None] * len(channels)
-                for i, chnl in enumerate(channels):
-                    if chnl.has_attr("max"):
-                        max_v = eval(chnl["max"])
-                        dtypes[i] = max_v.__class__.__name__
-
-            elif len(response) > 0:
-                # PerkinElmer-QPI tiff
-                dtypes = [None] * len(response)
-                for i, r in enumerate(response):
-                    v = eval(r.getText("response"))
-                    dtypes[i] = np.array([v]).dtype
-                    dtypes[i] = v.__class__.__name__
-            else:
-                return current_bf_dtype
-
-            unique_dtypes = set(dtypes)
-            if len(unique_dtypes) > 1:
-                msg = "More than 1 datatype. Will not try to scale values"
-                valtils.print_warning(msg)
-                img_dtype = None
-            else:
-                img_dtype = dtypes[0]
-
-            vals_are_floats = re.search("float", img_dtype) is not None
-            img_is_int = re.search("int", current_bf_dtype) is not None
-            if vals_are_floats and img_is_int:
-                max_v = vips_img.max()
-
-                bf_px_num_type = FormatTools.pixelTypeFromString(
-                    self.metadata.bf_datatype
-                )
-                temp_np_type, max_v_for_type = bf_to_numpy_dtype(
-                    bf_px_num_type, self.metadata.is_little_endian
-                )
-                if temp_np_type.endswith("4"):
-                    np_type = "float32"
-                elif temp_np_type.endswith("8"):
-                    np_type = "float64"
-
-                bf_type = slide_tools.NUMPY_FORMAT_BF_DTYPE[np_type]
-            else:
-                bf_type = current_bf_dtype
-        else:
-            bf_type = current_bf_dtype
-
-        return bf_type
 
 
 class CziJpgxrReader(SlideReader):
@@ -2695,7 +1666,7 @@ class CziJpgxrReader(SlideReader):
         if self.is_bgr:
             vips_img = vips_img.copy(interpretation="srgb")
 
-        np_type = slide_tools.CZI_FORMAT_TO_BF_FORMAT[czi_reader.pixel_type]
+        np_type = slide_tools.CZI_FORMAT_TO_OME_FORMAT[czi_reader.pixel_type]
         vips_type = slide_tools.NUMPY_FORMAT_VIPS_DTYPE[np_type]
         vips_img = vips_img.cast(vips_type)
 
@@ -2748,10 +1719,7 @@ class CziJpgxrReader(SlideReader):
         n_scenes = len(dims_dict)
         meta_list = [None] * n_scenes
         phys_size = self._get_pixel_physical_size()
-
-        with valtils.HiddenPrints():
-            bf_reader = BioFormatsSlideReader(self.src_f)
-            original_xml = bf_reader.metadata.original_xml
+        original_xml = None
 
         for i in range(n_scenes):
 
@@ -2774,9 +1742,6 @@ class CziJpgxrReader(SlideReader):
 
             series_meta.n_channels = n_channels
             series_meta.slide_dimensions = self._get_slide_dimensions(i)
-            series_meta.bf_datatype = slide_tools.CZI_FORMAT_TO_BF_FORMAT[
-                czi_reader.pixel_type
-            ]
             series_meta.channel_names = self._get_channel_names(meta=series_meta)
 
             series_meta.pixel_physical_size_xyu = phys_size
@@ -2850,28 +1815,6 @@ class CziJpgxrReader(SlideReader):
             channel_names[chnl_idx] = chnl_name
 
         channel_names = [x for x in channel_names if x is not None]
-
-        return channel_names
-
-    def _get_channel_names_bf(self, meta, *args, **kwargs):
-        """Get names of each channel
-
-        Get list of channel names
-
-        Returns
-        -------
-        channel_names : list
-            List of channel names
-
-        """
-        if meta.is_rgb:
-            return None
-
-        with valtils.HiddenPrints():
-            bf_reader = BioFormatsSlideReader(self.src_f)
-
-        rdr, bf_meta = bf_reader._get_bf_objects()
-        channel_names = bf_reader._get_channel_names(rdr, bf_meta)
 
         return channel_names
 
@@ -2978,13 +1921,6 @@ class ImageReader(SlideReader):
         slide_meta.pixel_physical_size_xyu = [1, 1, PIXEL_UNIT]
         slide_meta.slide_dimensions = self._get_slide_dimensions(pil_img)
 
-        f_extension = slide_tools.get_slide_extension(self.src_f)
-        if f_extension in BF_READABLE_FORMATS:
-            with valtils.HiddenPrints():
-                bf_reader = BioFormatsSlideReader(self.src_f)
-
-            slide_meta.original_xml = bf_reader.metadata.original_xml
-            slide_meta.bf_datatype = bf_reader.metadata.bf_datatype
         pil_img.close()
 
         return slide_meta
@@ -3036,8 +1972,7 @@ class ImageReader(SlideReader):
 def get_slide_reader(src_f, series=None):
     """Get appropriate SlideReader
 
-    If a slide can be read by openslide and bioformats, VipsSlideReader will be used
-    because it can be opened as a pyvips.Image.
+    VipsSlideReader will be used for slides that can be read by openslide or pyvips.
 
     Parameters
     ----------
@@ -3076,11 +2011,8 @@ def get_slide_reader(src_f, series=None):
     is_czi = f_extension == ".czi"
 
     is_flattened_tiff = False
-    bf_reads_flat = False
     if is_tiff:
-        is_flattened_tiff, _ = check_flattened_pyramid_tiff(src_f, check_with_bf=False)[
-            0:2
-        ]
+        is_flattened_tiff, _ = check_flattened_pyramid_tiff(src_f)[0:2]
 
     one_series = True
     if is_ome_tiff:
@@ -3093,54 +2025,21 @@ def get_slide_reader(src_f, series=None):
     # Give preference to vips/openslide since it will be fastest
     if (
         (can_use_vips or can_use_openslide)
-        and one_series
-        and series in [0, None]
         and not is_flattened_tiff
     ):
         return VipsSlideReader
 
+    if is_flattened_tiff:
+        return FlattenedPyramidReader
+
     if is_czi:
         is_jpegxr = check_czi_jpegxr(src_f)
-        is_m1_mac = valtils.check_m1_mac()
-        if is_m1_mac and is_jpegxr:
-            msg = "Will likely be errors using Bioformats to read a JPEGXR compressed CZI on this Apple M1 machine. Will use CziJpgxrReader instead."
+        if is_jpegxr:
             return CziJpgxrReader
-
-    # Check to see if Bio-formats will work
-    init_jvm()
-    can_read_meta_bf, can_read_img_bf = check_to_use_bioformats(src_f, series=series)
-    can_use_bf = can_read_meta_bf and can_read_img_bf
-    if is_flattened_tiff:
-        _, bf_reads_flat = check_flattened_pyramid_tiff(src_f, check_with_bf=True)[0:2]
-        # Give preference to BioFormatsSlideReader since it will be faster
-        if bf_reads_flat and can_read_img_bf:
-            return BioFormatsSlideReader
         else:
-            return FlattenedPyramidReader
-
-    if is_czi:
-        if can_read_img_bf:
-            # Bio-formats should be able to read CZI
-            return BioFormatsSlideReader
-        else:
-            # Bio-formats unable to read CZI. Check if it is due to jpgxr compression
-            czi = CziFile(src_f)
-            comp_tree = czi.meta.findall(".//OriginalCompressionMethod")
-            if len(comp_tree) > 0:
-                is_czi_jpgxr = comp_tree[0].text.lower() == "jpgxr"
-            else:
-                is_czi_jpgxr = False
-
-            if is_czi_jpgxr:
-                return CziJpgxrReader
-            else:
-                msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
-                valtils.print_warning(msg, rgb=Fore.RED)
-
-                return None
-
-    if can_use_bf:
-        return BioFormatsSlideReader
+            msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
+            valtils.print_warning(msg, rgb=Fore.RED)
+            return None
 
     # Try using scikit-image. Not ideal if image is large
     try:
@@ -3149,10 +2048,7 @@ def get_slide_reader(src_f, series=None):
     except:
         pass
 
-    msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
-    valtils.print_warning(msg, rgb=Fore.RED)
-
-    return None
+    raise RuntimeError(f"Unable to find reader to open {os.path.split(src_f)[-1]}")
 
 
 # Write slides to ome.tiff #
@@ -3385,7 +2281,7 @@ def check_channel_names(channel_names, is_rgb, nc, src_f=None):
 
 def create_ome_xml(
     shape_xyzct,
-    bf_dtype,
+    ome_dtype,
     is_rgb,
     pixel_physical_size_xyu=None,
     channel_names=None,
@@ -3398,8 +2294,8 @@ def create_ome_xml(
     shape_xyzct : tuple of int
         XYZCT shape of image
 
-    bf_dtype : str
-        String format of Bioformats datatype
+    ome_dtype : str
+        String format of OME datatype
 
     is_rgb : bool
         Whether or not the image is RGB
@@ -3434,7 +2330,7 @@ def create_ome_xml(
             size_z=z,
             size_c=c,
             size_t=t,
-            type=bf_dtype,
+            type=ome_dtype,
             dimension_order="XYZCT",
             metadata_only=True,
         ),
@@ -3600,9 +2496,9 @@ def update_xml_for_new_img(
     series = slide_meta.series
 
     if isinstance(img, pyvips.Image):
-        bf_dtype = vips2bf_dtype(img.format)
+        ome_dtype = vips2ome_dtype(img.format)
     else:
-        bf_dtype = slide_tools.NUMPY_FORMAT_BF_DTYPE[str(img.dtype)]
+        ome_dtype = slide_tools.NUMPY_FORMAT_OME_DTYPE[str(img.dtype)]
 
     if channel_names is None:
         channel_names = slide_meta.channel_names
@@ -3642,7 +2538,7 @@ def update_xml_for_new_img(
 
     temp_new_ome = create_ome_xml(
         shape_xyzct=new_xyzct,
-        bf_dtype=bf_dtype,
+        ome_dtype=ome_dtype,
         is_rgb=is_rgb,
         pixel_physical_size_xyu=pixel_physical_size_xyu,
         channel_names=updated_channel_names,
@@ -3867,11 +2763,11 @@ def save_ome_tiff(
     og_interpretation = img.interpretation
     is_rgb = og_interpretation in VIPS_RGB_FORMATS
 
-    bf_dtype = vips2bf_dtype(img.format)
+    ome_dtype = vips2ome_dtype(img.format)
     if ome_xml is None:
         # Create minimal ome-xml
         ome_xml_obj = create_ome_xml(
-            shape_xyzct=xyzct, bf_dtype=bf_dtype, is_rgb=is_rgb
+            shape_xyzct=xyzct, ome_dtype=ome_dtype, is_rgb=is_rgb
         )
     else:
         # Verify that vips image and ome-xml match
@@ -3883,7 +2779,7 @@ def save_ome_tiff(
             "same_x": ome_img.size_x == img.width,
             "same_y": ome_img.size_y == img.height,
             "total_pages": total_pages == img.bands,
-            "same_type": ome_img.type.name.lower() == bf_dtype,
+            "same_type": ome_img.type.name.lower() == ome_dtype,
         }
 
         if not all(list(match_dict.values())):
@@ -3891,7 +2787,7 @@ def save_ome_tiff(
                 f"mismatch in ome-xml and image: {str(match_dict)}. Will create ome-xml"
             )
             valtils.print_warning(msg)
-            ome_xml_obj = create_ome_xml(xyzct, bf_dtype, is_rgb)
+            ome_xml_obj = create_ome_xml(xyzct, ome_dtype, is_rgb)
 
     ome_xml_obj.creator = f"pyvips version {pyvips.__version__}"
     ome_metadata = ome_xml_obj.to_xml()

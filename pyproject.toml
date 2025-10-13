@@ -15,11 +15,9 @@ license = {text = "MIT"}
 requires-python = ">=3.9"
 dependencies = [
     "beautifulsoup4<5.0.0,>=4.11.1",
-    "scyjava<2.0.0,>=1.8.1",
     "colorama<1.0.0,>=0.4.6",
     "colour-science>0.4.2",
     "fastcluster<2.0.0,>=1.2.6",
-    "jpype1<2.0.0,>=1.4.1",
     "matplotlib<4.0.0,>=3.6.3",
     "numpy>1.23,<2.0.0",
     "ome-types<1.0.0,>=0.3.2",

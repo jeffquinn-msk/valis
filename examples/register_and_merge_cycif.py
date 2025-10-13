@@ -92,5 +92,3 @@ stop = time.time()
 elapsed = stop - start
 
 print(f"Time to warp, merge, and save slides is {elapsed/60} minutes")
-
-registration.kill_jvm()

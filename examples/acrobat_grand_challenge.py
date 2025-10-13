@@ -452,5 +452,3 @@ if __name__ == "__main__":
 
     except OSError as e:
         print("Error: %s : %s" % (registrar.data_dir, e.strerror))
-
-    registration.kill_jvm()
