@@ -223,9 +223,13 @@ def hex_to_rgb(value):
 
 
 def get_ncpus_available():
+    n_cpus = 1
     if hasattr(os, "sched_getaffinity"):
-        return len(os.sched_getaffinity(0))
+        n_cpus = len(os.sched_getaffinity(0))
     elif hasattr(multiprocessing, "cpu_count"):
-        return multiprocessing.cpu_count()
-    else:
-        return 1
+        n_cpus = multiprocessing.cpu_count()
+
+    if n_cpus == 1:
+        raise RuntimeError("Need multiple cpus")
+
+    return n_cpus - 1
