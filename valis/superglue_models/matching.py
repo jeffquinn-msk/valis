@@ -40,10 +40,13 @@
 # --------------------------------------------------------------------*/
 # %BANNER_END%
 
+import logging
 import torch
 
 from .superpoint import SuperPoint
 from .superglue import SuperGlue
+
+logger = logging.getLogger(__name__)
 
 
 class Matching(torch.nn.Module):

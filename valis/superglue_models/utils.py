@@ -46,9 +46,12 @@ from pathlib import Path
 import time
 from collections import OrderedDict
 from threading import Thread
+import logging
 import numpy as np
 import cv2
 import torch
+
+logger = logging.getLogger(__name__)
 
 # import matplotlib.pyplot as plt
 # import matplotlib
@@ -83,17 +86,14 @@ class AverageTimer:
 
     def print(self, text="Timer"):
         total = 0.0
-        print("[{}]".format(text), end=" ")
+        parts = ["[{}]".format(text)]
         for key in self.times:
             val = self.times[key]
             if self.will_print[key]:
-                print("%s=%.3f" % (key, val), end=" ")
+                parts.append("%s=%.3f" % (key, val))
                 total += val
-        print("total=%.3f sec {%.1f FPS}" % (total, 1.0 / total), end=" ")
-        if self.newline:
-            print(flush=True)
-        else:
-            print(end="\r", flush=True)
+        parts.append("total=%.3f sec {%.1f FPS}" % (total, 1.0 / total))
+        logger.debug(" ".join(parts))
         self.reset()
 
 
@@ -121,17 +121,17 @@ class VideoStreamer:
         self.skip = skip
         self.max_length = max_length
         if isinstance(basedir, int) or basedir.isdigit():
-            print("==> Processing USB webcam input: {}".format(basedir))
+            logger.info("==> Processing USB webcam input: %s", basedir)
             self.cap = cv2.VideoCapture(int(basedir))
             self.listing = range(0, self.max_length)
         elif basedir.startswith(("http", "rtsp")):
-            print("==> Processing IP camera input: {}".format(basedir))
+            logger.info("==> Processing IP camera input: %s", basedir)
             self.cap = cv2.VideoCapture(basedir)
             self.start_ip_camera_thread()
             self._ip_camera = True
             self.listing = range(0, self.max_length)
         elif Path(basedir).is_dir():
-            print("==> Processing image directory input: {}".format(basedir))
+            logger.info("==> Processing image directory input: %s", basedir)
             self.listing = list(Path(basedir).glob(image_glob[0]))
             for j in range(1, len(image_glob)):
                 image_path = list(Path(basedir).glob(image_glob[j]))
@@ -144,7 +144,7 @@ class VideoStreamer:
             self.listing = self.listing[: self.max_length]
             self.camera = False
         elif Path(basedir).exists():
-            print("==> Processing video input: {}".format(basedir))
+            logger.info("==> Processing video input: %s", basedir)
             self.cap = cv2.VideoCapture(basedir)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             num_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -195,7 +195,7 @@ class VideoStreamer:
             else:
                 ret, image = self.cap.read()
             if ret is False:
-                print("VideoStreamer: Cannot get image from camera")
+                logger.warning("VideoStreamer: Cannot get image from camera")
                 return (None, False)
             w, h = image.shape[1], image.shape[0]
             if self.video_file:
@@ -229,7 +229,7 @@ class VideoStreamer:
             self._ip_image = img
             self._ip_grabbed = ret
             self._ip_index += 1
-            # print('IPCAMERA THREAD got frame {}'.format(self._ip_index))
+            # logger.debug('IPCAMERA THREAD got frame %s', self._ip_index)
 
     def cleanup(self):
         self._ip_running = False
@@ -250,9 +250,9 @@ def process_resize(w, h, resize):
 
     # Issue warning if resolution is too small or too large.
     if max(w_new, h_new) < 160:
-        print("Warning: input resolution is very small, results may vary")
+        logger.warning("Warning: input resolution is very small, results may vary")
     elif max(w_new, h_new) > 2000:
-        print("Warning: input resolution is very large, results may vary")
+        logger.warning("Warning: input resolution is very large, results may vary")
 
     return w_new, h_new
 

@@ -1,5 +1,6 @@
 """Various functions used to visualize registration results"""
 
+import logging
 import colour
 import matplotlib.pyplot as plt
 from skimage import draw, color, exposure, transform
@@ -13,6 +14,8 @@ import platform
 
 from . import warp_tools
 from . import slide_io
+
+logger = logging.getLogger(__name__)
 
 # JzAzBz #
 DXDY_CSPACE = "JzAzBz"
@@ -1290,7 +1293,11 @@ def color_displacement_tri_grid(
     )
 
     if img is not None:
-        assert img.shape[0:2] == trimesh_img.shape[0:2], print(
+        if img.shape[0:2] != trimesh_img.shape[0:2]:
+            logger.error(
+                f"mismatch in shape between `img` {img.shape[0:2]} and displacement fields {trimesh_img.shape[0:2]}"
+            )
+        assert img.shape[0:2] == trimesh_img.shape[0:2], (
             f"mismatch in shape between `img` {img.shape[0:2]} and displacement fields {trimesh_img.shape[0:2]}"
         )
         mesh_pos = trimesh_img > 0

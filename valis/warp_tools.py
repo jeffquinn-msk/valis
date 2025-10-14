@@ -1,3 +1,4 @@
+import logging
 import multiprocessing
 from scipy.optimize import fmin_l_bfgs_b
 from scipy import ndimage, spatial
@@ -24,6 +25,8 @@ import re
 from packaging import version
 from copy import deepcopy
 from . import valtils
+
+logger = logging.getLogger(__name__)
 
 pyvips.cache_set_max(0)
 
@@ -78,7 +81,7 @@ def get_ref_img_idx(img_f_list, ref_img_name=None):
                 f"No files in `img_f_list` match exactly match {ref_img_name}. "
                 f"Returning closest match, which is {valtils.get_name(img_f_list[ref_img_idx])}"
             )
-            valtils.print_warning(warning_msg)
+            logger.warning(warning_msg)
 
     return ref_img_idx
 
@@ -2076,7 +2079,7 @@ def warp_xy_rigid(xy, inv_matrix):
     try:
         dst_pts = src_pts.T @ np.linalg.inv(inv_matrix).T
     except np.linalg.LinAlgError:
-        print("Singular matrix")
+        logger.error("Singular matrix")
         dst_pts = src_pts.T @ np.linalg.pinv(inv_matrix).T
 
     # below, we will divide by the last dimension of the homogeneous

@@ -10,6 +10,7 @@ It's not recommended that the other subclasses be used, but they are kept
 to provide examples on how to subclass AffineOptimizer.
 """
 
+import logging
 import torch
 import kornia
 
@@ -22,6 +23,8 @@ import SimpleITK as sitk
 from scipy import interpolate
 import pathlib
 from .warp_tools import get_affine_transformation_params, get_corners_of_image, warp_xy
+
+logger = logging.getLogger(__name__)
 
 # Cost functions #
 EPS = np.finfo("float").eps
@@ -739,7 +742,7 @@ class AffineOptimizer(object):
             optimal_M = tf.params
             w = transform.warp(self.pyramid_moving[n], optimal_M, order=3)
             if np.all(w == 0):
-                print(Warning("Image warped out of bounds. Registration failed"))
+                logger.warning("Image warped out of bounds. Registration failed")
                 return False, np.ones_like(optimal_M), cost_list
 
         tf = make_transform(self.p)

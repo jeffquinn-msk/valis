@@ -1,5 +1,6 @@
 """Perform non-rigid registration"""
 
+import logging
 import torch
 import kornia
 from torchvision.models.optical_flow import raft_large, Raft_Large_Weights
@@ -21,6 +22,8 @@ from . import viz
 from . import warp_tools
 from . import preprocessing
 from . import valtils
+
+logger = logging.getLogger(__name__)
 
 NR_CLS_KEY = "non_rigid_registrar_cls"
 NR_PROCESSING_KW_KEY = "processer_kwargs"
@@ -228,7 +231,7 @@ class NonRigidRegistrar(object):
         moving_shape = warp_tools.get_shape(moving_img)[0:2]
         fixed_shape = warp_tools.get_shape(fixed_img)[0:2]
 
-        assert np.all(moving_shape == fixed_shape), print(
+        assert np.all(moving_shape == fixed_shape), logger.error(
             "Images have different shapes"
         )
 
@@ -597,7 +600,7 @@ class NonRigidRegistrarGroupwise(NonRigidRegistrar):
 
         self.shape = img_list[0].shape
         for img in img_list:
-            assert img.shape == self.shape, print("Images have differernt shapes")
+            assert img.shape == self.shape, logger.error("Images have different shapes")
 
         self.img_list = img_list
         self.size = len(img_list)
@@ -950,7 +953,7 @@ class SimpleElastixWarper(NonRigidRegistrarXY):
 
         """
 
-        assert moving_img.shape == fixed_img.shape, print(
+        assert moving_img.shape == fixed_img.shape, logger.error(
             "Images have different shapes"
         )
 
@@ -1145,7 +1148,7 @@ class RAFTWarper(NonRigidRegistrar):
             img3d = np.dstack(3 * [img])
         else:
             if self.quant_img:
-                print("quantizing image for non-rigid registration")
+                logger.info("quantizing image for non-rigid registration")
                 img3d = preprocessing.quantize_image(img)
             else:
                 img3d = img
@@ -1603,7 +1606,7 @@ class NonRigidTileRegistrar(object):
         Each tile is registered and then stitched together
         """
 
-        print("======== Registering tiles\n")
+        logger.info("======== Registering tiles")
 
         n_cpu = valtils.get_ncpus_available()
 

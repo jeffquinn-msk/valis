@@ -6,6 +6,7 @@ Methods to work with slides, after being opened using slide_io
 import torch
 import kornia
 
+import logging
 import os
 import pyvips
 import numpy as np
@@ -20,6 +21,8 @@ from . import warp_tools
 from . import slide_io
 from . import viz
 from . import preprocessing
+
+logger = logging.getLogger(__name__)
 
 IHC_NAME = "brightfield"
 IF_NAME = "fluorescence"
@@ -144,7 +147,7 @@ def get_slide_extension(src_f):
 
     if len(possible_formats) == 0:
         msg = f"Do not recognize format of {src_f}"
-        valtils.print_warning(msg)
+        logger.warning(msg)
         return None
 
     elif len(possible_formats) == 1:

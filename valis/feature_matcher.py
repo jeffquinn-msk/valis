@@ -1,5 +1,6 @@
 """Functions and classes to match and filter image features"""
 
+import logging
 import torch
 import kornia
 import numpy as np
@@ -13,6 +14,8 @@ import traceback
 
 from . import warp_tools, valtils, feature_detectors
 from .superglue_models import matching, superglue, superpoint
+
+logger = logging.getLogger(__name__)
 
 AMBIGUOUS_METRICS = set(metrics.pairwise._VALID_METRICS).intersection(
     metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS.keys()
@@ -143,7 +146,7 @@ def filter_matches_ransac(
     else:
         traceback_msg = traceback.format_exc()
         msg = f"Need at least 4 keypoints for RANSAC filtering, but only have {kp1_xy.shape[0]}"
-        valtils.print_warning(msg, traceback_msg=traceback_msg)
+        logger.warning(msg)
         filtered_src_points = kp1_xy.copy()
         filtered_dst_points = kp2_xy.copy()
         good_idx = np.arange(0, kp1_xy.shape[0])
@@ -456,11 +459,9 @@ def match_descriptors(
         metric_kwargs["p"] = p
 
     if metric in AMBIGUOUS_METRICS:
-        print(
-            "metric",
-            metric,
-            "could be a distance in pairwise_distances() or similarity in pairwise_kernels().",
-            "Please set metric_type. Otherwise, metric is assumed to be a distance",
+        logger.warning(
+            f"metric {metric} could be a distance in pairwise_distances() or similarity in pairwise_kernels(). "
+            "Please set metric_type. Otherwise, metric is assumed to be a distance"
         )
     if callable(metric) or metric in metrics.pairwise._VALID_METRICS:
 
@@ -468,13 +469,11 @@ def match_descriptors(
             descriptors1, descriptors2, metric=metric, **metric_kwargs
         )
         if callable(metric) and metric_type is None:
-            print(
-                Warning(
-                    "Metric passed as a function or class, but the metric type not provided",
-                    "Assuming the metric function returns a distance. If a similarity is actually returned",
-                    "set metric_type = 'similiarity'. If metric is a distance, set metric_type = 'distance'"
-                    "to avoid this message",
-                )
+            logger.warning(
+                "Metric passed as a function or class, but the metric type not provided. "
+                "Assuming the metric function returns a distance. If a similarity is actually returned, "
+                "set metric_type = 'similiarity'. If metric is a distance, set metric_type = 'distance' "
+                "to avoid this message"
             )
 
             metric_type = "distance"
@@ -696,10 +695,8 @@ def match_desc_and_kp(
     all_filtering_kwargs = {"kp1_xy": matched_kp1_xy, "kp2_xy": matched_kp2_xy}
     if filtering_kwargs is None:
         if filter_method not in RANSAC_DICT.keys():
-            print(
-                Warning(
-                    f"filtering_kwargs not provided for {filter_method} match filtering. Will use {DEFAULT_RANSAC_NAME} instead"
-                )
+            logger.warning(
+                f"filtering_kwargs not provided for {filter_method} match filtering. Will use {DEFAULT_RANSAC_NAME} instead"
             )
             filter_method = DEFAULT_RANSAC_NAME
             all_filtering_kwargs.update({"ransac_val": DEFAULT_RANSAC})
@@ -1078,13 +1075,10 @@ class Matcher(object):
                     {"scaling": self.scaling, "thresholdFactor": self.gms_threshold}
                 )
             else:
-                print(
-                    Warning(
-                        f"Selected {self.match_filter_method},\
-                              but did not provide argument\
-                              additional_filtering_kwargs.\
-                              Defaulting to RANSAC"
-                    )
+                logger.warning(
+                    f"Selected {self.match_filter_method}, "
+                    "but did not provide argument additional_filtering_kwargs. "
+                    "Defaulting to RANSAC"
                 )
 
                 self.match_filter_method = DEFAULT_RANSAC_NAME
@@ -1094,11 +1088,9 @@ class Matcher(object):
             filtering_kwargs = {"ransac_val": self.ransac}
 
         else:
-            print(
-                Warning(
-                    f"Dont know {self.match_filter_method}.\
-                Defaulting to RANSAC"
-                )
+            logger.warning(
+                f"Don't know {self.match_filter_method}. "
+                "Defaulting to RANSAC"
             )
 
             self.match_filter_method = DEFAULT_RANSAC_NAME
@@ -1545,7 +1537,7 @@ class LightGlueMatcher(Matcher):
                 f"a subclass of {feature_detectors.KorniaFD.__name__}"
             )
 
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
         self._feature_detector = feature_detector
         self.feature_name = feature_detector.__class__.__name__
