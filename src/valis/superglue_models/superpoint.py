@@ -40,9 +40,12 @@
 # --------------------------------------------------------------------*/
 # %BANNER_END%
 
+import logging
 import torch
 from torch import nn
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def simple_nms(scores, nms_radius: int):
@@ -151,11 +154,11 @@ class SuperPoint(nn.Module):
         self.load_state_dict(weights)
 
         mk = self.config["max_keypoints"]
-        # print(f"max kp = {mk}")
+        # logger.debug("max kp = %s", mk)
         if mk == 0 or mk < -1:
             raise ValueError('"max_keypoints" must be positive or "-1"')
 
-        print("Loaded SuperPoint model")
+        logger.info("Loaded SuperPoint model")
 
     def forward(self, data):
         """Compute keypoints, scores, descriptors for image"""

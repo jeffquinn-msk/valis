@@ -41,11 +41,14 @@
 # %BANNER_END%
 
 from copy import deepcopy
+import logging
 from pathlib import Path
 from typing import List, Tuple
 
 import torch
 from torch import nn
+
+logger = logging.getLogger(__name__)
 
 
 def MLP(channels: List[int], do_bn: bool = True) -> nn.Module:
@@ -245,7 +248,7 @@ class SuperGlue(nn.Module):
         path = Path(__file__).parent
         path = path / "weights/superglue_{}.pth".format(self.config["weights"])
         self.load_state_dict(torch.load(str(path)))
-        print('Loaded SuperGlue model ("{}" weights)'.format(self.config["weights"]))
+        logger.info('Loaded SuperGlue model ("%s" weights)', self.config["weights"])
 
     def forward(self, data):
         """Run SuperGlue on a pair of keypoints and descriptors"""

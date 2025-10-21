@@ -1,3 +1,4 @@
+import logging
 import torch
 import kornia
 
@@ -15,6 +16,8 @@ from . import valtils
 from . import viz
 
 from pqdm.threads import pqdm
+
+logger = logging.getLogger(__name__)
 
 ROI_MASK = "mask"
 ROI_MATCHES = "matches"
@@ -137,7 +140,7 @@ class MicroRigidRegistrar(object):
                     f"which was previously {matcher.feature_detector.__class__.__name__}. "
                     f"To avoid this, set `feature_detector_cls=None` when initializing the `Valis` object"
                 )
-                valtils.print_warning(msg, None)
+                logger.warning(msg)
             matcher.feature_detector = fd
         else:
             fd = None
@@ -366,7 +369,7 @@ class MicroRigidRegistrar(object):
                     return None
 
             except Exception as e:
-                valtils.print_warning(f"Error rigidly aligning tile {bbox_id}: {e}")
+                logger.warning(f"Error rigidly aligning tile {bbox_id}: {e}")
 
                 return None
 
@@ -380,7 +383,7 @@ class MicroRigidRegistrar(object):
             high_rez_moving_match_xy_list[bbox_id] = matched_moving_xy
             high_rez_fixed_match_xy_list[bbox_id] = matched_fixed_xy
 
-        print(
+        logger.info(
             f"Aligning {moving_slide.name} to {fixed_slide.name}. ROI width, height is {reg_bbox[2:]} pixels"
         )
         n_cpu = valtils.get_ncpus_available()
@@ -506,7 +509,7 @@ class MicroRigidRegistrar(object):
             msg_clr = Fore.YELLOW
 
         full_res_msg = f"{res_msg} N low rez matches= {n_old_matches}, N high rez matches = {n_new_matches}. Low rez D= {og_d}, high rez D={new_d}"
-        valtils.print_warning(full_res_msg, rgb=msg_clr)
+        logger.warning(full_res_msg)
         if improved:
 
             moving_slide.M = new_M

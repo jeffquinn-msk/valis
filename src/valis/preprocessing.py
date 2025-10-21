@@ -2,6 +2,7 @@
 Collection of pre-processing methods for aligning images
 """
 
+import logging
 import torch
 import kornia
 
@@ -27,6 +28,8 @@ import einops
 
 from . import slide_io
 from . import warp_tools
+
+logger = logging.getLogger(__name__)
 
 # DEFAULT_COLOR_STD_C = 0.01 # jzazbz
 DEFAULT_COLOR_STD_C = 0.2  # cam16-ucs
@@ -479,7 +482,7 @@ class StainFlattener(ImageProcesser):
         else:
             k, clusterer = estimate_k(x, max_k=max_colors)
             self.n_colors = k
-            print(f"estimated {k} colors")
+            logger.info(f"estimated {k} colors")
 
         self.clusterer = clusterer
         stain_rgb = jab2rgb(ss.inverse_transform(clusterer.cluster_centers_))
@@ -1213,13 +1216,13 @@ def thresh_unimodal(x, bins=256):
 
         perp_line_obj = LineString([[x1, y1], [x2, y2]])
         if not perp_line_obj.is_valid or not hist_line.is_valid:
-            print(
+            logger.debug(
                 "perpline is valid",
                 perp_line_obj.is_valid,
                 "hist line is valid",
                 hist_line.is_valid,
             )
-            print("perpline xy1, xy2", [x1, y1], [x2, y2], "m=", perp_m)
+            logger.debug("perpline xy1, xy2", [x1, y1], [x2, y2], "m=", perp_m)
 
         intersection = perp_line_obj.intersection(hist_line)
         if intersection.is_empty:
@@ -1777,7 +1780,7 @@ def remove_regular_shapes(mask, irreg_thresh=0.05):
 
     n_removed = n_prev_regions - n_irreg_regions
     if n_removed > 0:
-        print(f"Removed {n_removed} regularly shaped regions")
+        logger.info(f"Removed {n_removed} regularly shaped regions")
 
     return irreg_mask
 

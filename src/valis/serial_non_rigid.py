@@ -1,5 +1,6 @@
 """Classes and functions to perform serial non-rigid registration of a set of images"""
 
+import logging
 import torch
 import kornia
 
@@ -21,6 +22,8 @@ from . import serial_rigid
 from . import viz
 from . import preprocessing
 from . import slide_tools
+
+logger = logging.getLogger(__name__)
 
 IMG_LIST_KEY = "img_list"
 IMG_F_LIST_KEY = "img_f_list"
@@ -680,7 +683,7 @@ class SerialNonRigidRegistrar(object):
         elif isinstance(src, dict):
             self.from_rigid_reg = False
         else:
-            valtils.print_warning(
+            logger.warning(
                 f"src must be either a SerialRigidRegistrar, string, or dictionary"
             )
             return None
@@ -710,7 +713,7 @@ class SerialNonRigidRegistrar(object):
                 f"If you would like all images to be directly aligned to {og_ref_name}, "
                 f"then set `align_to_reference` to `True`",
             )
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
     def get_shape(self, img):
         if isinstance(img, pyvips.Image):
@@ -790,7 +793,7 @@ class SerialNonRigidRegistrar(object):
         for i, img in enumerate(img_list):
             img_shape = self.get_shape(img)
 
-            assert np.all(img_shape == self.shape), valtils.print_warning(
+            assert np.all(img_shape == self.shape), logger.warning(
                 "Images must all have the shape"
             )
 
@@ -806,7 +809,7 @@ class SerialNonRigidRegistrar(object):
                     fixed_xy = xy_coords[1]
                 else:
                     msg = "moving_to_fixed_xy is not a dictionary. Will be ignored"
-                    valtils.print_warning(msg)
+                    logger.warning(msg)
 
             nr_obj = NonRigidZImage(
                 self,
@@ -1043,7 +1046,7 @@ class SerialNonRigidRegistrar(object):
         img_list = [nr_img_obj.image for nr_img_obj in self.non_rigid_obj_list]
         non_rigid_reg = non_rigid_reg_class(params=non_rigid_reg_params)
 
-        print("\n======== Registering images (non-rigid)\n")
+        logger.info("Registering images (non-rigid)")
         warped_imgs, warped_grids, backward_deformations = non_rigid_reg.register(
             img_list, self.mask
         )
@@ -1143,7 +1146,7 @@ class SerialNonRigidRegistrar(object):
         ].image.shape
 
         iter_order = warp_tools.get_alignment_indices(self.size, self.ref_img_idx)
-        print("\n======== Summarizing registration\n")
+        logger.info("Summarizing registration")
         for moving_idx, fixed_idx in tqdm(iter_order):
             moving_obj = self.non_rigid_obj_list[moving_idx]
             fixed_obj = self.non_rigid_obj_list[fixed_idx]
@@ -1311,7 +1314,7 @@ def register_images(
         for d in [registered_img_dir, registered_data_dir, registered_grids_dir]:
             pathlib.Path(d).mkdir(exist_ok=True, parents=True)
 
-        print("\n======== Saving results\n")
+        logger.info("Saving results")
         if moving_to_fixed_xy is not None:
             summary_df = nr_reg.summarize()
             summary_file = os.path.join(registered_data_dir, name + "_results.csv")
@@ -1339,6 +1342,6 @@ def register_images(
     toc = time()
     elapsed = toc - tic
     time_string, time_units = valtils.get_elapsed_time_string(elapsed)
-    print(f"\n======== Non-rigid registration complete in {time_string} {time_units}\n")
+    logger.info(f"Non-rigid registration complete in {time_string} {time_units}")
 
     return nr_reg

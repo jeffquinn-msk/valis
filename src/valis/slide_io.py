@@ -2,6 +2,7 @@
 
 import torch
 import kornia
+import logging
 
 import os
 from skimage import io, transform
@@ -34,6 +35,7 @@ from . import slide_tools
 from . import warp_tools
 from . import valtils
 
+logger = logging.getLogger(__name__)
 
 pyvips.cache_set_max(0)
 
@@ -154,7 +156,8 @@ def check_to_use_openslide(src_f):
                 use_openslide = True
         except pyvips.error.Error as e:
             traceback_msg = traceback.format_exc()
-            valtils.print_warning(e, traceback_msg=traceback_msg)
+            logger.warning(e)
+            logger.warning(traceback_msg)
 
     return use_openslide
 
@@ -192,11 +195,11 @@ def get_ome_obj(x):
         # Sometimes the image description found by `ome_types.from_tiff`
         # does not contain the ome-xml. Seems to be the case for ImageJ exports, at least
         if ome_fxn == ome_types.from_tiff:
-            valtils.print_warning(
+            logger.warning(
                 f"Could not get OME-XML for image {x}, due to the following error: {e}"
             )
         else:
-            valtils.print_warning(
+            logger.warning(
                 f"Could not get OME-XML, due to the following error: {e}"
             )
 
@@ -271,7 +274,7 @@ def check_flattened_pyramid_tiff(src_f):
             try:
                 page = pyvips.Image.new_from_file(src_f, page=i)
             except pyvips.error.Error as e:
-                print(f"error at page {i}: {e}")
+                logger.error(f"error at page {i}: {e}")
                 continue
 
             w = page.width
@@ -353,7 +356,7 @@ def check_xml_img_match(xml, vips_img, metadata, series=0):
         msg = (
             f"ome-xml for {metadata.name} does not contain any metadata for any images"
         )
-        valtils.print_warning(msg)
+        logger.warning(msg)
         ome_nc = None
         ome_nt = None
         ome_nz = None
@@ -375,17 +378,17 @@ def check_xml_img_match(xml, vips_img, metadata, series=0):
         metadata.n_t = 1
         metadata.n_z = 1
         if ome_nc is not None:
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
     if ome_size_x != vips_size_x:
         msg = f"For {metadata.name}, the ome-xml states the width should be {ome_size_x}, but the image has a width of {vips_size_x}"
         if ome_size_x is not None:
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
     if ome_size_y != vips_size_y:
         msg = f"For {metadata.name}, the ome-xml states the height should be {ome_size_y}, but the image has a width of {vips_size_y}"
         if ome_size_y is not None:
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
     return metadata
 
@@ -709,7 +712,7 @@ class SlideReader(object):
                 matching_channel_idx = cnames.index(best_match)
                 if best_match.upper() != channel.upper():
                     msg = f"Cannot find exact match to channel '{channel}' in {valtils.get_name(self.src_f)}. Using channel {best_match}"
-                    valtils.print_warning(msg)
+                    logger.warning(msg)
             except Exception as e:
                 traceback_msg = traceback.format_exc()
                 matching_channel_idx = 0
@@ -719,7 +722,7 @@ class SlideReader(object):
                     f" Using channel number {matching_channel_idx}, which has name {self.metadata.channel_names[matching_channel_idx]}"
                 )
 
-                valtils.print_warning(msg)
+                logger.warning(msg)
 
         else:
             matching_channel_idx = 0
@@ -979,7 +982,7 @@ class VipsSlideReader(SlideReader):
 
         """
         if level < 0:
-            valtils.print_warning(f"level is negative {level} for {self.src_f}")
+            logger.warning(f"level is negative {level} for {self.src_f}")
         level = max(0, level)
 
         if self.use_openslide:
@@ -1032,7 +1035,7 @@ class VipsSlideReader(SlideReader):
 
         """
         if level < 0:
-            valtils.print_warning(
+            logger.warning(
                 f"level is negative {level} for {self.src_f}. Should be >= 0"
             )
         level = max(0, level)
@@ -1222,7 +1225,7 @@ class VipsSlideReader(SlideReader):
                 try:
                     page = pyvips.Image.new_from_file(self.src_f, page=i)
                 except pyvips.error.Error as e:
-                    print(f"error at page {i}: {e}")
+                    logger.error(f"error at page {i}: {e}")
 
                 w = page.width
                 h = page.height
@@ -1381,7 +1384,7 @@ class FlattenedPyramidReader(VipsSlideReader):
 
         """
         if level < 0:
-            valtils.print_warning(
+            logger.warning(
                 f"level is negative {level} for {self.src_f}. Should be >= 0"
             )
         level = max(0, level)
@@ -1414,7 +1417,7 @@ class FlattenedPyramidReader(VipsSlideReader):
 
     def slide2image(self, level, xywh=None, *args, **kwargs):
         if level < 0:
-            valtils.print_warning(
+            logger.warning(
                 f"level is negative {level} for {self.src_f}. Should be >= 0"
             )
         level = max(0, level)
@@ -1429,8 +1432,8 @@ class FlattenedPyramidReader(VipsSlideReader):
             msg2 = (
                 f"Will try to resize level 0 to have shape {out_shape_wh} and convert"
             )
-            valtils.print_warning(msg1)
-            valtils.print_warning(msg2, None)
+            logger.warning(msg1)
+            logger.info(msg2)
 
             s = np.mean(out_shape_wh / self.metadata.slide_dimensions[0])
             l0_slide = self.slide2vips(level=0, xywh=xywh, *args, **kwargs)
@@ -1548,7 +1551,8 @@ class CziJpgxrReader(SlideReader):
         except Exception as e:
             traceback_msg = traceback.format_exc()
             msg = "Please install aicspylibczi"
-            valtils.print_warning(msg, traceback_msg=traceback_msg)
+            logger.warning(msg)
+            logger.warning(traceback_msg)
 
         czi_reader = CziFile(src_f)
         self.original_meta_dict = valtils.etree_to_dict(czi_reader.meta)
@@ -1562,7 +1566,8 @@ class CziJpgxrReader(SlideReader):
             self.meta_list = self.create_metadata()
         except Exception as e:
             traceback_msg = traceback.format_exc()
-            valtils.print_warning(e, traceback_msg=traceback_msg)
+            logger.warning(e)
+            logger.warning(traceback_msg)
 
         self.n_series = len(self.meta_list)
         if series is None:
@@ -1577,7 +1582,7 @@ class CziJpgxrReader(SlideReader):
                     f"which is series {series}"
                 )
 
-                valtils.print_warning(msg, warning_type=None, rgb=valtils.Fore.GREEN)
+                logger.info(msg)
 
         self._series = series
         self.series = series
@@ -1621,7 +1626,7 @@ class CziJpgxrReader(SlideReader):
         tile_bboxes = czi_reader.get_all_mosaic_tile_bounding_boxes(C=0)
 
         vips_img = pyvips.Image.black(*out_shape_wh, bands=self.metadata.n_channels)
-        print(f"Building CZI mosaic for {valtils.get_name(self.src_f)}")
+        logger.info(f"Building CZI mosaic for {valtils.get_name(self.src_f)}")
         for tile_info, tile_bbox in tqdm(tile_bboxes.items()):
             m = tile_info.m_index
             x = tile_bbox.x
@@ -1642,7 +1647,7 @@ class CziJpgxrReader(SlideReader):
 
     def slide2vips(self, level=0, xywh=None, *args, **kwargs):
         if level < 0:
-            valtils.print_warning(
+            logger.warning(
                 f"level is negative {level} for {self.src_f}. Should be >= 0"
             )
         level = max(0, level)
@@ -1652,8 +1657,8 @@ class CziJpgxrReader(SlideReader):
             vips_img = self._read_mosaic(level=level, xywh=xywh, *args, **kwargs)
 
         except Exception as e:
-            print(e)
-            print("Reading whole image")
+            logger.info(e)
+            logger.info("Reading whole image")
             vips_img = self._read_whole_img(level=level, xywh=xywh, *args, **kwargs)
 
         czi_reader = CziFile(self.src_f)
@@ -1693,7 +1698,7 @@ class CziJpgxrReader(SlideReader):
 
         """
         if level < 0:
-            valtils.print_warning(
+            logger.warning(
                 f"level is negative {level} for {self.src_f}. Should be >= 0"
             )
         level = max(0, level)
@@ -2003,7 +2008,7 @@ def get_slide_reader(src_f, series=None):
     f_extension = slide_tools.get_slide_extension(src_f)
     if f_extension is None:
         msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
-        valtils.print_warning(msg, rgb=Fore.RED)
+        logger.warning(msg)
         return None
 
     is_ome_tiff = check_is_ome(src_f)
@@ -2038,7 +2043,7 @@ def get_slide_reader(src_f, series=None):
             return CziJpgxrReader
         else:
             msg = f"Unable to find reader to open {os.path.split(src_f)[-1]}"
-            valtils.print_warning(msg, rgb=Fore.RED)
+            logger.warning(msg)
             return None
 
     # Try using scikit-image. Not ideal if image is large
@@ -2174,7 +2179,7 @@ def get_colormap(channel_names, is_rgb, series=0, original_xml=None):
                     # Channels do not have unique colors
                     colormap = default_colormap
             except Exception as e:
-                print(e)
+                logger.warning(e)
                 # Can't get original colors
                 colormap = default_colormap
         else:
@@ -2234,7 +2239,7 @@ def check_colormap(colormap, channel_names):
     if msg is not None:
         msg += ". Will not try to add channel colors"
         updated_colormap = None
-        valtils.print_warning(msg)
+        logger.warning(msg)
 
     return updated_colormap
 
@@ -2274,7 +2279,7 @@ def check_channel_names(channel_names, is_rgb, nc, src_f=None):
     renamed_channels = set(updated_channel_names) - set(channel_names)
     if len(renamed_channels) > 0:
         msg = f"some non-RGB channel names were `None` or not provided. Channels that got renamed are: {sorted(list(renamed_channels))}"
-        print(msg)
+        logger.info(msg)
 
     return updated_channel_names
 
@@ -2380,7 +2385,7 @@ def create_ome_xml(
                 if colormap is not None:
                     msg += f", which has keys: {list(colormap.keys())}"
                 msg += ". Saving without colormap. To avoid this error, please provide valid colormap, or set colormap=None."
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 channels = [
                     create_channel(i, name=updated_channel_names[i]) for i in range(c)
                 ]
@@ -2530,7 +2535,8 @@ def update_xml_for_new_img(
         except elementTree.ParseError as e:
             traceback_msg = traceback.format_exc()
             msg = "xml in original file is invalid or missing. Will create one"
-            valtils.print_warning(msg, traceback_msg=traceback_msg)
+            logger.warning(msg)
+            logger.warning(traceback_msg)
             og_valid_xml = False
 
     else:
@@ -2740,11 +2746,11 @@ def save_ome_tiff(
         pyvips.enums.ForeignTiffCompression.JPEG,
     ]:
         msg = f"Image has type {img.format} but compression method {compression} will convert image to uint8. To avoid this, change compression 'lzw', 'deflate', or 'none' "
-        valtils.print_warning(msg)
+        logger.warning(msg)
         if compression == "jp2k":
             compression = "jpeg"
             msg = f"Float images can't be saved using {compression} compression. Please change to another method, such as 'lzw', 'deflate', or 'none' "
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
             return None
 
@@ -2754,7 +2760,7 @@ def save_ome_tiff(
         new_out_f = out_f.split(dst_f_extension)[0] + ".ome.tiff"
         new_dst_f = os.path.join(dst_dir, new_out_f)
         msg = f"{out_f} is not an ome.tiff. Changing dst_f to {new_dst_f}"
-        valtils.print_warning(msg)
+        logger.warning(msg)
         dst_f = new_dst_f
 
     # Get ome-xml metadata #
@@ -2786,7 +2792,7 @@ def save_ome_tiff(
             msg = (
                 f"mismatch in ome-xml and image: {str(match_dict)}. Will create ome-xml"
             )
-            valtils.print_warning(msg)
+            logger.warning(msg)
             ome_xml_obj = create_ome_xml(xyzct, ome_dtype, is_rgb)
 
     ome_xml_obj.creator = f"pyvips version {pyvips.__version__}"
@@ -2837,9 +2843,9 @@ def save_ome_tiff(
         img.signal_connect("eval", eval_handler)
     except pyvips.error.Error:
         msg = "Unable to create progress bar for pyvips. May need to update libvips to >= 8.11"
-        valtils.print_warning(msg)
+        logger.warning(msg)
 
-    print(f"saving {dst_f} ({img.width} x {image_height} and {image_bands} channels)")
+    logger.info(f"saving {dst_f} ({img.width} x {image_height} and {image_bands} channels)")
 
     # Write image #
     tile_wh = tile_wh - (tile_wh % 16)  # Tile shape must be multiple of 16
@@ -2857,7 +2863,7 @@ def save_ome_tiff(
     if tile_wh < 16:
         tile_wh = 16
 
-    print("")
+    logger.info("")
 
     lossless = Q == 100
     rgbjpeg = compression in ["jp2k", "jpeg"] and img.interpretation in VIPS_RGB_FORMATS
@@ -2892,7 +2898,7 @@ def save_ome_tiff(
     )
     sys.stdout.flush()
     sys.stdout.write("\nComplete\n")
-    print("")
+    logger.info("")
 
 
 @valtils.deprecated_args(perceputally_uniform_channel_colors="colormap")

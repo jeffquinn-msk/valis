@@ -4,8 +4,6 @@ import kornia
 import re
 import os
 import multiprocessing
-from colorama import init as color_init
-from colorama import Fore, Style
 import functools
 import pyvips
 import warnings
@@ -13,23 +11,22 @@ import contextlib
 from collections import defaultdict
 import platform
 import subprocess
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-color_init()
-
-
-def print_warning(msg, warning_type=UserWarning, rgb=Fore.YELLOW, traceback_msg=None):
-    """Print warning message with color"""
-    warning_msg = f"{rgb}{msg}{Style.RESET_ALL}"
-    if warning_type is None:
-        print(warning_msg)
+def print_warning(msg, warning_type=UserWarning, rgb=None, traceback_msg=None):
+    """Deprecated: Use logging instead. This function is kept for backwards compatibility."""
+    if warning_type == DeprecationWarning:
+        logger.warning(msg)
+    elif warning_type is None:
+        logger.info(msg)
     else:
-        warnings.simplefilter("always", warning_type)
-        warnings.warn(warning_msg, warning_type)
+        logger.warning(msg)
 
     if traceback_msg is not None:
-        traceback_msg_rgb = f"{rgb}{traceback_msg}{Style.RESET_ALL}"
-        print(traceback_msg_rgb)
+        logger.warning(traceback_msg)
 
 
 def deprecated_args(**aliases):
@@ -53,7 +50,7 @@ def rename_kwargs(func_name, kwargs, aliases):
                 )
 
             msg = f"{alias} is deprecated; use {new} instead"
-            print_warning(msg, DeprecationWarning)
+            logger.warning(msg)
 
             kwargs[new] = kwargs.pop(alias)
 

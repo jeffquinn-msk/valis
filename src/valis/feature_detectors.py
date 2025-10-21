@@ -8,6 +8,7 @@ an example
 
 """
 
+import logging
 import torch
 import kornia
 import cv2
@@ -20,6 +21,8 @@ from . import valtils
 from . import warp_tools
 from . import preprocessing
 from .superglue_models import superpoint
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_FEATURE_DETECTOR = cv2.BRISK_create()
@@ -130,7 +133,7 @@ class FeatureDD(object):
             except:
                 traceback_msg = traceback.format_exc()
                 msg = f"{self.kp_descriptor_name} unable to both detect and compute features. Setting to {DEFAULT_FEATURE_DETECTOR.__class__.__name__}"
-                valtils.print_warning(msg, traceback_msg=traceback_msg)
+                logger.warning(f"{msg}\n{traceback_msg}")
 
                 self.kp_detector = DEFAULT_FEATURE_DETECTOR
 
@@ -187,7 +190,7 @@ class FeatureDD(object):
         s = 0.5
         detect_img = image
         for i in range(self.n_levels):
-            print(
+            logger.info(
                 f"detecting features in level {i} with image shape {detect_img.shape}"
             )
             kp_pos_xy, desc = self._detect_and_compute(detect_img, mask)
@@ -721,7 +724,6 @@ class DiskFD(KorniaFD):
             )[0]
             kp_pos_xy = res.keypoints.detach().numpy()
             desc = res.descriptors.detach().numpy()
-
         return kp_pos_xy, desc
 
 

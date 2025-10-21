@@ -46,6 +46,8 @@ from . import viz
 from . import warp_tools
 from . import serial_non_rigid
 
+logger = logging.getLogger(__name__)
+
 pyvips.cache_set_max(0)
 
 # Destination directories #
@@ -716,7 +718,7 @@ class Slide(object):
         if not isinstance(bk_dxdy, pyvips.Image):
             self._bk_dxdy_np = bk_dxdy
         else:
-            print(f"Cannot set bk_dxdy when data is type {type(bk_dxdy)}")
+            logger.error(f"Cannot set bk_dxdy when data is type {type(bk_dxdy)}")
 
     bk_dxdy = property(
         fget=get_bk_dxdy, fset=set_bk_dxdy, doc="Get and set backwards displacements"
@@ -753,7 +755,7 @@ class Slide(object):
         if not isinstance(fwd_dxdy, pyvips.Image):
             self._fwd_dxdy_np = fwd_dxdy
         else:
-            print(f"Cannot set fwd_dxdy when data is type {type(fwd_dxdy)}")
+            logger.error(f"Cannot set fwd_dxdy when data is type {type(fwd_dxdy)}")
 
     fwd_dxdy = property(
         fget=get_fwd_dxdy, fset=set_fwd_dxdy, doc="Get forward displacements"
@@ -820,7 +822,7 @@ class Slide(object):
                 "the scaling may not be the same for all images, and so "
                 "may not overlap."
             )
-            valtils.print_warning(msg)
+            logger.warning(msg)
             same_shape = False
             img_scale_rc = np.array(img_shape_rc) / (
                 np.array(self.processed_img_shape_rc)
@@ -998,7 +1000,7 @@ class Slide(object):
         if level != 0:
             if not np.issubdtype(type(level), np.integer):
                 msg = "Need slide level to be an integer indicating pyramid level"
-                valtils.print_warning(msg)
+                logger.warning(msg)
             aligned_slide_shape = self.val_obj.get_aligned_slide_shape(level)
         else:
             aligned_slide_shape = self.aligned_slide_shape_rc
@@ -2188,7 +2190,7 @@ class Valis(object):
                     f"Cannot upack `img_list`, which is type {type(img_list).__name__}. "
                     "Please provide an iterable object (list, tuple, array, etc...) that has the location of the images"
                 )
-                valtils.print_warning(msg, rgb=Fore.RED)
+                logger.warning(msg)
         else:
             self.get_imgs_in_dir()
 
@@ -2212,7 +2214,7 @@ class Valis(object):
                         f"Please add {print_f} to `img_list` at the desired location, "
                         f"or set `imgs_ordered`=False if order of image alignment is not already known"
                     )
-                    valtils.print_warning(msg, rgb=Fore.RED)
+                    logger.warning(msg)
                     return None
 
         self.original_img_list = [str(x) for x in self.original_img_list]
@@ -2243,7 +2245,7 @@ class Valis(object):
 
         if max_image_dim_px < max_processed_image_dim_px:
             msg = f"max_image_dim_px is {max_image_dim_px} but needs to be less or equal to {max_processed_image_dim_px}. Setting max_image_dim_px to {max_processed_image_dim_px}"
-            valtils.print_warning(msg)
+            logger.warning(msg)
             max_image_dim_px = max_processed_image_dim_px
 
         self.max_image_dim_px = max_image_dim_px
@@ -2275,7 +2277,7 @@ class Valis(object):
                     f"which was previously {matcher.feature_detector.__class__.__name__}. "
                     f"To avoid this, set `feature_detector_cls=None` when initializing the `Valis` object"
                 )
-                valtils.print_warning(msg, None)
+                logger.warning(msg)
             matcher.feature_detector = fd
         else:
             fd = None
@@ -2496,10 +2498,10 @@ class Valis(object):
 
                     elif len(matching_f) > 1:
                         msg = f"found {len(matching_f)} matches for {dir_name}: {', '.join(matching_f)}"
-                        valtils.print_warning(msg, rgb=Fore.RED)
+                        logger.warning(msg)
                     elif len(matching_f) == 0:
                         msg = f"Can't find slide file associated with {dir_name}"
-                        valtils.print_warning(msg, rgb=Fore.RED)
+                        logger.warning(msg)
 
         # Final check to make sure that all images are readable
         self.original_img_list = [
@@ -2557,6 +2559,8 @@ class Valis(object):
 
         default_name = valtils.get_name(src_f)
 
+        slide_obj = None
+
         if src_f in self.name_dict.keys():
             # src_f is full path to image
             assigned_name = self.name_dict[src_f]
@@ -2594,10 +2598,13 @@ class Valis(object):
                 f"{pformat(possible_names_dict)}"
             )
 
-            valtils.print_warning(msg, rgb=Fore.RED)
+            logger.warning(msg)
             slide_obj = None
 
-        return slide_obj
+        if slide_obj:
+            return slide_obj
+
+        raise KeyError(f"{src_f} not found")
 
     def get_ref_slide(self):
         ref_slide = self.get_slide(self.reference_img_f)
@@ -2639,12 +2646,12 @@ class Valis(object):
                 z = len(str(len(dup_paths)))
 
                 msg = f"Detected {len(dup_paths)} images that would be named {dup_name}"
-                valtils.print_warning(msg, rgb=Fore.RED)
+                logger.warning(msg)
 
                 for j, p in enumerate(dup_paths):
                     new_name = f"{names_dict[p]}_{str(j).zfill(z)}"
                     msg = f"Renmaing {p} to {new_name} in Valis.slide_dict)"
-                    valtils.print_warning(msg)
+                    logger.warning(msg)
                     names_dict[p] = new_name
 
         return names_dict
@@ -2785,7 +2792,7 @@ class Valis(object):
 
             if slide_obj.is_empty:
                 msg = f"{slide_obj.name} appears to be empty and will be skipped during registration"
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 self._empty_slides[slide_obj.name] = slide_obj
                 continue
 
@@ -2819,7 +2826,7 @@ class Valis(object):
 
         if np.any(scaling_for_og_imgs < 1):
             msg = f"Smallest image is less than max_image_dim_px. parameter max_image_dim_px is being set to {min_max_wh}"
-            valtils.print_warning(msg)
+            logger.warning(msg)
             self.max_image_dim_px = min_max_wh
             for slide_obj in self.slide_dict.values():
                 # Rescale images
@@ -2830,7 +2837,7 @@ class Valis(object):
 
         if self.max_processed_image_dim_px > self.max_image_dim_px:
             msg = f"parameter max_processed_image_dim_px also being updated to {self.max_image_dim_px}"
-            valtils.print_warning(msg)
+            logger.warning(msg)
             self.max_processed_image_dim_px = self.max_image_dim_px
 
     def create_original_composite_img(self, rigid_registrar):
@@ -3000,9 +3007,7 @@ class Valis(object):
         mask_s = (
             warp_tools.get_shape(mask)[0:2] / warp_tools.get_shape(slide_obj.image)[0:2]
         )
-        assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), print(
-            "mask does not appear to based on scaled copy of Slide's image"
-        )
+        assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), "mask does not appear to based on scaled copy of Slide's image"
         if np.any(mask.shape[0:2] != slide_obj.image.shape[0:2]):
             mask = warp_tools.resize_img(mask, slide_obj.image.shape[0:2])
 
@@ -3045,7 +3050,7 @@ class Valis(object):
                     f" To avoid this, please either delete {self.dst_dir}, or change the"
                     f" `name` parameter when initializing the Valis object to something besides `None` or '{self.name}'"
                 )
-                valtils.print_warning(msg)
+                logger.warning(msg)
 
         pathlib.Path(self.processed_dir).mkdir(exist_ok=True, parents=True)
 
@@ -3117,9 +3122,7 @@ class Valis(object):
                 if self.create_masks:
                     mask = processor.create_mask()
                     mask_s = warp_tools.get_shape(mask)[0:2] / processed_shape_rc
-                    assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), print(
-                        "mask does not appear to based on scaled copy of Slide's image"
-                    )
+                    assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), "mask does not appear to based on scaled copy of Slide's image"
                     if np.any(mask.shape[0:2] != processed_shape_rc):
                         mask = warp_tools.resize_img(mask, processed_shape_rc)
 
@@ -3612,7 +3615,7 @@ class Valis(object):
                 f"Will now use {matcher.__class__.__name__} to match images using {matcher.feature_detector.__class__.__name__} features"
             )
             # Images sorted with different feature_detector, but need to matched using matcher's feature_detector
-            valtils.print_warning(msg, None)
+            logger.warning(msg)
             rigid_registrar.rematch(
                 matcher_obj=matcher, keep_unfiltered=False, valis_obj=self
             )
@@ -3634,7 +3637,7 @@ class Valis(object):
                     ]
                 )
 
-                valtils.print_warning(msg)
+                logger.warning(msg)
 
         # Get output shapes #
         if tform_dict is None:
@@ -3710,13 +3713,13 @@ class Valis(object):
         ):
             img_obj = rigid_registrar.img_obj_list[moving_idx]
             if img_obj.name in scaled_M_dict:
-                print(f"Skipping {img_obj.name}, which has affine transform provided.")
+                logger.info(f"Skipping {img_obj.name}, which has affine transform provided.")
                 continue
 
             prev_img_obj = rigid_registrar.img_obj_list[fixed_idx]
             img_obj.fixed_obj = prev_img_obj
 
-            print(
+            logger.info(
                 f"finding M for {img_obj.name}, which is being aligned to {prev_img_obj.name}"
             )
 
@@ -3759,7 +3762,7 @@ class Valis(object):
         if self.denoise_rigid:
             self.denoise_images()
 
-        print("\n==== Rigid registration\n")
+        logger.info("\n==== Rigid registration\n")
         if self.do_rigid is True:
             rigid_registrar = serial_rigid.register_images(
                 img_dir=self.processed_dir,
@@ -3782,7 +3785,7 @@ class Valis(object):
 
         if rigid_registrar is False:
             msg = "Rigid registration failed"
-            valtils.print_warning(msg, rgb=Fore.RED)
+            logger.warning(msg)
 
             return False
 
@@ -4084,7 +4087,7 @@ class Valis(object):
         """
         Get mask for non-rigid registration
         """
-        print("Creating non-rigid mask")
+        logger.info("Creating non-rigid mask")
         if self.create_masks:
             non_rigid_mask = self._create_mask_from_processed()
         else:
@@ -4390,7 +4393,7 @@ class Valis(object):
                     f"However, not all images are this large. Setting `max_non_rigid_registration_dim_px` to "
                     f"{smallest_img_max}, which is the largest dimension of the smallest image"
                 )
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 max_img_dim = smallest_img_max
 
         ref_slide = self.get_ref_slide()
@@ -4634,7 +4637,7 @@ class Valis(object):
                 elif self.norm_method == "img_stats":
                     normed_img = preprocessing.norm_img_stats(img, all_img_stats)
                 else:
-                    print(f"Don't recognize `norm_metthod`={self.norm_method}")
+                    logger.error(f"Don't recognize `norm_metthod`={self.norm_method}")
                     normed_img = img
 
                 normed_img = exposure.rescale_intensity(
@@ -4744,7 +4747,7 @@ class Valis(object):
             inpaint_mask[inpaint_mask != 0] = 255
 
             if inpaint_mask.max() == 0:
-                print(f"no defects in {slide_obj.name}")
+                logger.info(f"no defects in {slide_obj.name}")
                 continue
 
             cv_inpaint_method = cv2.INPAINT_NS
@@ -5482,12 +5485,12 @@ class Valis(object):
         """
 
         self.start_time = time()
-        print("\n==== Converting images\n")
+        logger.info("\n==== Converting images\n")
         self.convert_imgs(
             series=self.series, reader_cls=reader_cls, reader_dict=reader_dict
         )
 
-        print("\n==== Processing images\n")
+        logger.info("\n==== Processing images\n")
         slide_processors = self.create_img_processor_dict(
             brightfield_processing_cls=brightfield_processing_cls,
             brightfield_processing_kwargs=brightfield_processing_kwargs,
@@ -5509,14 +5512,14 @@ class Valis(object):
             slide_obj.aligned_slide_shape_rc = aligned_slide_shape_rc
 
         if self.micro_rigid_registrar_cls is not None:
-            print("\n==== Micro-rigid registration\n")
+            logger.info("\n==== Micro-rigid registration\n")
             self.micro_rigid_register()
 
         if rigid_registrar is False:
             return None, None, None
 
         if self.non_rigid_registrar_cls is not None:
-            print("\n==== Non-rigid registration\n")
+            logger.info("\n==== Non-rigid registration\n")
             non_rigid_registrar = self.non_rigid_register(
                 rigid_registrar, slide_processors
             )
@@ -5526,7 +5529,7 @@ class Valis(object):
 
         self._add_empty_slides()
 
-        print("\n==== Measuring error\n")
+        logger.info("\n==== Measuring error\n")
         error_df = self.measure_error()
         self.error_df = error_df
         self.cleanup()
@@ -5639,7 +5642,7 @@ class Valis(object):
                 f"which is {comp} specified size of {max_non_rigid_registration_dim_px}. "
                 f"Please set `max_non_rigid_registration_dim_px` to a larger value."
             )
-            valtils.print_warning(msg)
+            logger.warning(msg)
             return None, self.error_df
 
         # Remove empty slides
@@ -5696,7 +5699,7 @@ class Valis(object):
                 f"but this method is experimental"
             )
 
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
             write_dxdy = True
             non_rigid_registrar_cls, img_specific_args = self.get_nr_tiling_params(
@@ -5707,7 +5710,7 @@ class Valis(object):
             )
             non_rigid_registrar_obj = non_rigid_registrar_cls()
 
-        print("\n==== Performing microregistration\n")
+        logger.info("\n==== Performing microregistration\n")
         non_rigid_registrar = serial_non_rigid.register_images(
             src=nr_reg_src,
             non_rigid_reg_class=non_rigid_registrar_cls,
@@ -5901,7 +5904,7 @@ class Valis(object):
         overlap_img_fout = os.path.join(self.overlap_dir, self.name + "_micro_reg.png")
         warp_tools.save_img(overlap_img_fout, micro_overlap)
 
-        print("\n==== Measuring error\n")
+        logger.info("\n==== Measuring error\n")
         error_df = self.measure_error()
         self.error_df = error_df
         data_f_out = os.path.join(self.data_dir, self.name + "_summary.csv")
@@ -5933,7 +5936,7 @@ class Valis(object):
                     f"but the image only has {n_levels} (starting from 0). ",
                     f"Will use level {level-1}, which is the smallest level",
                 )
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 level = level - 1
 
             slide_shape_rc = ref_slide.slide_dimensions_wh[level][::-1]
@@ -6049,7 +6052,7 @@ class Valis(object):
                 except Exception as e:
                     traceback_msg = traceback.format_exc()
                     msg = f"Could not create colormap for the following reason:{e}"
-                    valtils.print_warning(msg, traceback_msg=traceback_msg)
+                    logger.warning(msg)
 
             dst_f = os.path.join(dst_dir, slide_obj.name + ".ome.tiff")
 
@@ -6205,7 +6208,7 @@ class Valis(object):
 
             if len(keep_idx) == 0:
                 msg = f"Have already added all channels in {slide_channel_names}. Ignoring {slide_name}"
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 continue
 
             if drop_duplicates and warped_slide.bands != len(keep_idx):
@@ -6215,7 +6218,7 @@ class Valis(object):
                     warped_slide = keep_channels[0]
                 else:
                     warped_slide = keep_channels[0].bandjoin(keep_channels[1:])
-            print(f"merging {', '.join(slide_channel_names)} from {slide_obj.name}")
+            logger.info(f"merging {', '.join(slide_channel_names)} from {slide_obj.name}")
 
             if merged_slide is None:
                 merged_slide = warped_slide

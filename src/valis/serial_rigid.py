@@ -1,5 +1,6 @@
 """Classes and functions to perform serial rigid registration of a set of images"""
 
+import logging
 import torch
 import kornia
 import numpy as np
@@ -30,6 +31,7 @@ from .feature_matcher import Matcher, convert_distance_to_similarity, GMS_NAME
 from . import feature_matcher
 from . import valtils
 
+logger = logging.getLogger(__name__)
 
 DENOISE_MSG = "Denoising images"
 FEATURE_MSG = "Detecting features"
@@ -499,7 +501,7 @@ class SerialRigidRegistrar(object):
                 f"If you would like all images to be *directly* aligned to {og_ref_name}, "
                 f"then set `align_to_reference` to `True`. Note that in both cases, {og_ref_name} will remain unwarped.",
             )
-            valtils.print_warning(msg)
+            logger.warning(msg)
 
     def generate_img_obj_list(self, feature_detector, valis_obj=None, qt_emitter=None):
         """Create a list of ZImage objects
@@ -846,7 +848,7 @@ class SerialRigidRegistrar(object):
                     f"Neighbor match filtering improved alignment, reducing error from {original_d:.4} to {original_with_neighbor_filter_d:.4}, "
                     f"but also descreased the number of matches from {to_prev_match_info12.n_matches} to {len(nf_prev_idx)}"
                 )
-                valtils.print_warning(msg, None, Fore.GREEN)
+                logger.info(msg)
                 # neighbor filtering improved alignment
 
                 # To update img_obj
@@ -1155,7 +1157,7 @@ class SerialRigidRegistrar(object):
                 f"Will {action} when estimating rigid transform.\n"
             )
 
-            valtils.print_warning(msg, None, rgb=msg_clr)
+            logger.info(msg)
 
             if not lower_d and not more_matches:
                 continue
@@ -1443,7 +1445,7 @@ class SerialRigidRegistrar(object):
                         kp1_xy=reflected_src_xy,
                         img2=prev_warped,
                         desc2=prev_img_obj.desc,
-                        kp2_xy=dst_xy,
+                        kp2_xy=dst_xy.astype(reflected_src_xy.dtype),
                         additional_filtering_kwargs=filter_kwargs,
                         **filter_kwargs,
                     )
@@ -1521,7 +1523,7 @@ class SerialRigidRegistrar(object):
                 elif ref_y:
                     msg = f"{msg} y axis"
                 msg = f"{msg}. Will include reflection for {img_obj.name}"
-                valtils.print_warning(msg)
+                logger.warning(msg)
 
                 # Update matches
                 img_obj.match_dict[prev_img_obj] = reflected_matches12[best_idx]
@@ -1578,7 +1580,7 @@ class SerialRigidRegistrar(object):
             M = self.check_M(src_xy, dst_xy, M)
             if np.all(M == np.eye(3)):
                 msg = f"Rigid registration between {img_obj.name} and {prev_img_obj.name} appears to have failed. Will not rigidly warp {img_obj.name}"
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 M = np.eye(3)
 
             img_obj.to_prev_A = M
@@ -1700,7 +1702,7 @@ class SerialRigidRegistrar(object):
                     f"Cost was {initial_cst} but is now {after_cst}"
                     f"KP medD was {before_med_d}, but is now {after_med_d}."
                 )
-                valtils.print_warning(msg)
+                logger.warning(msg)
                 prev_img = warped_img
 
             prev_M = M @ img_obj.optimal_M
@@ -2050,16 +2052,10 @@ def register_images(
     tic = time()
     if affine_optimizer is not None:
         if transformer.__class__.__name__ != affine_optimizer.transformation:
-            print(
-                Warning(
-                    "Transformer is of type ",
-                    transformer.__class__.__name__,
-                    "but affine_optimizer optimizes the",
-                    affine_optimizer.transformation,
-                    ". Setting",
-                    transformer.__class__.__name__,
-                    "as the transform to be optimized",
-                )
+            logger.warning(
+                f"Transformer is of type {transformer.__class__.__name__} "
+                f"but affine_optimizer optimizes the {affine_optimizer.transformation}. "
+                f"Setting {transformer.__class__.__name__} as the transform to be optimized"
             )
 
             affine_optimizer.transformation = transformer.__class__.__name__
@@ -2155,7 +2151,7 @@ def register_images(
             f"Will now use {matcher.__class__.__name__} to match images using {matcher.feature_detector.__class__.__name__} features"
         )
         # Images sorted with feature_detector, but need to matched using matcher's feature_detector
-        valtils.print_warning(msg, None)
+        logger.info(msg)
         registrar.rematch(
             matcher_obj=matcher, valis_obj=valis_obj, keep_unfiltered=False
         )
@@ -2179,12 +2175,10 @@ def register_images(
     for img_obj in registrar.img_obj_list:
         s = transform.SimilarityTransform(img_obj.M).scale
         if s >= max_scaling or s <= 1 / max_scaling:
-            print(
-                Warning(
-                    f"Max allowed scaling is {max_scaling},\
-                          but was calculated as being {s}.\
-                          Registration failed. Maybe try using the Euclidean transform."
-                )
+            logger.error(
+                f"Max allowed scaling is {max_scaling}, "
+                f"but was calculated as being {s}. "
+                f"Registration failed. Maybe try using the Euclidean transform."
             )
             return False
 
@@ -2231,6 +2225,6 @@ def register_images(
     elapsed = toc - tic
     time_string, time_units = valtils.get_elapsed_time_string(elapsed)
 
-    print(f"\n======== Rigid registration complete in {time_string} {time_units}\n")
+    logger.info(f"Rigid registration complete in {time_string} {time_units}")
 
     return registrar
