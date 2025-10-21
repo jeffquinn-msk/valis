@@ -724,7 +724,6 @@ class DiskFD(KorniaFD):
             )[0]
             kp_pos_xy = res.keypoints.detach().numpy()
             desc = res.descriptors.detach().numpy()
-
         return kp_pos_xy, desc
 
 

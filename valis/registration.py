@@ -2559,6 +2559,8 @@ class Valis(object):
 
         default_name = valtils.get_name(src_f)
 
+        slide_obj = None
+
         if src_f in self.name_dict.keys():
             # src_f is full path to image
             assigned_name = self.name_dict[src_f]
@@ -2599,7 +2601,10 @@ class Valis(object):
             logger.warning(msg)
             slide_obj = None
 
-        return slide_obj
+        if slide_obj:
+            return slide_obj
+
+        raise KeyError(f"{src_f} not found")
 
     def get_ref_slide(self):
         ref_slide = self.get_slide(self.reference_img_f)

@@ -1445,7 +1445,7 @@ class SerialRigidRegistrar(object):
                         kp1_xy=reflected_src_xy,
                         img2=prev_warped,
                         desc2=prev_img_obj.desc,
-                        kp2_xy=dst_xy,
+                        kp2_xy=dst_xy.astype(reflected_src_xy.dtype),
                         additional_filtering_kwargs=filter_kwargs,
                         **filter_kwargs,
                     )
