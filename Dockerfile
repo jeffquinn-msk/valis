@@ -1,29 +1,14 @@
-FROM bitnami/pytorch:latest
+FROM python:3.13-slim
 
 USER root
 
 RUN --mount=type=cache,target=/.cache/pip pip install --upgrade pip
 RUN --mount=type=cache,target=/.cache/pip pip install ipython ipdb memray
 RUN apt-get update && apt-get install --no-install-recommends -y \
-	libglib2.0-dev \
-	glib-2.0-dev \
-	libexpat1-dev \
-	libexpat-dev \
-	librsvg2-2 \
-	librsvg2-common \
-	librsvg2-dev \
-	libpng-dev \
-	libjpeg-turbo8-dev \
-	libopenjp2-7-dev \
-	libtiff-dev \
-	libexif-dev \
-	liblcms2-dev \
-	libheif-dev \
-	liborc-dev \
-  	libgirepository1.0-dev \
-	libopenslide-dev \
-	librsvg2-dev \
-    libvips-dev
+	libvips-tools \
+    libvips \
+    libvips-dev \
+    build-essential
 
 RUN mkdir -p /app
 COPY src/ /app/src/

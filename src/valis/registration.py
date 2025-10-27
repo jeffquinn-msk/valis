@@ -1277,7 +1277,6 @@ class Slide(object):
             dst_shape_rc=aligned_slide_shape,
             fwd_dxdy=fwd_dxdy,
         )
-
         crop_method = self.get_crop_method(crop)
         if crop_method is not False:
             if crop_method == CROP_REF:
