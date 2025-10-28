@@ -836,19 +836,7 @@ class VipsSlideReader(SlideReader):
     def create_metadata(self):
         vips_img = pyvips.Image.new_from_file(self.src_f)
 
-        if "image-description" in vips_img.get_fields():
-            is_image_J = (
-                re.search("imagej", vips_img.get("image-description").lower())
-                is not None
-            )
-            if is_image_J:
-                slide_meta = self._get_metadata_bf()
-                return slide_meta
-
-        if self.use_openslide:
-            server = OPENSLIDE_RDR
-        else:
-            server = VIPS_RDR
+        server = VIPS_RDR
 
         meta_name = f"{os.path.split(self.src_f)[1]}_Series(0)".strip("_")
         slide_meta = MetaData(meta_name, server)
