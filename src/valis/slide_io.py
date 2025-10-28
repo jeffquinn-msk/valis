@@ -879,7 +879,7 @@ class VipsSlideReader(SlideReader):
 
     def verify_xml(self):
         img_xml = self.metadata.original_xml
-        if img_xml is not None and not self.use_openslide:
+        if img_xml is not None and self.is_ome and not self.use_openslide:
             # Don't check openslide images, as metadata counts alpha channel
             ome_info = get_ome_obj(img_xml)
             assert len(ome_info.images) > 0
