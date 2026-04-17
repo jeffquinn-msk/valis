@@ -300,11 +300,22 @@ def main():
     args = get_parser().parse_args()
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Symlink input files into output directory
-    for input_file in [args.reference, args.image]:
-        link_path = os.path.join(args.output_dir, os.path.basename(input_file))
-        if not os.path.exists(link_path):
-            os.symlink(os.path.abspath(input_file), link_path)
+    # Symlink --image into output directory
+    img_link_path = os.path.join(args.output_dir, os.path.basename(args.image))
+    if not os.path.exists(img_link_path):
+        os.symlink(os.path.abspath(args.image), img_link_path)
+
+    # Save 8-bit copy of --reference so valis learns registration from uint8
+    ref_out_path = os.path.join(args.output_dir, os.path.basename(args.reference))
+    if not os.path.exists(ref_out_path):
+        ref_img = pyvips.Image.new_from_file(args.reference, page=0)
+        if ref_img.format == 'ushort':
+            ref_img = convert_16to8_bit(ref_img)
+        ref_img.set_progress(True)
+        cb = create_progress_callback()
+        ref_img.signal_connect("eval", cb)
+        ref_img.tiffsave(ref_out_path)
+        cb.close()
 
     # Create a Valis object and use it to register the slides in slide_src_dir
     registrar = registration.Valis(src_dir=args.output_dir,
@@ -340,6 +351,8 @@ def main():
         names.append(os.path.basename(args.reference))
 
         img = pyvips.Image.new_from_file(args.reference, page=0)
+        if img.format == 'ushort':
+            img = convert_16to8_bit(img)
         warped_img = warp_new_slide(
             img,
             registrar,
