@@ -340,7 +340,7 @@ class SuperPointFD(FeatureDetectorBase):
 
 | # | Issue | Severity | Effort | Status |
 |---|-------|----------|--------|--------|
-| 1 | God class `registration.py` | Critical | High | open |
+| 1 | God class `registration.py` | Critical | High | **done** — split into package |
 | 2 | No type hints | High | Medium | **partial** — public API annotated |
 | 3 | 27-parameter constructor | High | Medium | **done** — `RegistrationConfig` dataclass |
 | 4 | String constants, no enums | Medium | Low | **done** |
@@ -432,16 +432,22 @@ with install instructions when torch is not available.  `DEFAULT_MATCHER` in
 
 ---
 
-## Remaining open item
+### Issue 1 — God-class split (`registration/` package)
+`registration.py` (6,649 lines, two deeply coupled classes) converted to a
+proper Python package at `src/valis/registration/`:
 
-| # | Issue |
-|---|-------|
-| 1 | God class `registration.py` — split into focused components |
+```
+registration/
+├── __init__.py      Re-exports every public name — zero breaking changes
+├── _constants.py    Module-level constants, defaults, shared imports (~180 lines)
+├── state.py         CropMode, DisplacementField, RegistrationConfig, load_registrar
+├── slide.py         Slide class (~1,500 lines)
+└── pipeline.py      Valis class (~4,800 lines)
+```
 
-The god-class refactor (Issue 1) was intentionally left for a separate,
-dedicated effort: splitting 6,000+ lines across multiple new modules is a
-high-blast-radius change that requires careful coordination with downstream
-users and a comprehensive integration test run.
+- `from valis.registration import Valis, Slide, load_registrar` continues to work.
+- `slide.py` uses `TYPE_CHECKING` to reference `Valis` without a circular import.
+- All 26 unit tests pass unchanged.
 
 A reasonable starting point that would have the most immediate usability impact without requiring a full rewrite:
 
