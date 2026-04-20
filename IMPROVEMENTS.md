@@ -338,27 +338,66 @@ class SuperPointFD(FeatureDetectorBase):
 
 ## Summary Table
 
-| # | Issue | Severity | Effort |
-|---|-------|----------|--------|
-| 1 | God class `registration.py` | Critical | High |
-| 2 | No type hints | High | Medium |
-| 3 | 27-parameter constructor | High | Medium |
-| 4 | String constants, no enums | Medium | Low |
-| 5 | Mixed coordinate conventions | High | Medium |
-| 6 | Displacement field state | High | Medium |
-| 7 | Silent exception handling | Medium | Low |
-| 8 | No unit tests | High | High |
-| 9 | Import-order segfault | High | Medium |
-| 10 | Duplicate crop methods | Medium | Low |
-| 11 | Warp method proliferation | Medium | Low |
-| 12 | Example coverage | Medium | Low |
-| 13 | No construction validation | Medium | Low |
-| 14 | Optional deep learning deps | Medium | Medium |
+| # | Issue | Severity | Effort | Status |
+|---|-------|----------|--------|--------|
+| 1 | God class `registration.py` | Critical | High | open |
+| 2 | No type hints | High | Medium | **partial** — public API annotated |
+| 3 | 27-parameter constructor | High | Medium | open |
+| 4 | String constants, no enums | Medium | Low | **done** |
+| 5 | Mixed coordinate conventions | High | Medium | **partial** — `rc_to_wh`/`wh_to_rc` added |
+| 6 | Displacement field state | High | Medium | open |
+| 7 | Silent exception handling | Medium | Low | open |
+| 8 | No unit tests | High | High | **partial** — 17 unit tests added |
+| 9 | Import-order segfault | High | Medium | **done** |
+| 10 | Duplicate crop methods | Medium | Low | open |
+| 11 | Warp method proliferation | Medium | Low | open |
+| 12 | Example coverage | Medium | Low | open |
+| 13 | No construction validation | Medium | Low | **done** |
+| 14 | Optional deep learning deps | Medium | Medium | open |
+
+## Completed work
+
+### Issue 4 — CropMode enum (`registration.py`)
+Added `CropMode(StrEnum)` with members `OVERLAP`, `REFERENCE`, and `NONE`. The old
+`CROP_OVERLAP`/`CROP_REF`/`CROP_NONE` module constants now point to enum members, so
+all existing code is backward compatible. String literals (e.g. `"overlap"`) continue
+to work wherever a `CropMode` is accepted.
+
+### Issue 13 — Construction validation (`registration.py`)
+`Valis.__init__` now validates `src_dir` eagerly (when `img_list` is `None`) and raises:
+- `FileNotFoundError` if the directory does not exist
+- `NotADirectoryError` if the path is a file
+- `ValueError` if no supported images are found
+- `ValueError` if fewer than 2 images are found
+
+### Issue 9 — Import-order segfault guard (`__init__.py`)
+`valis/__init__.py` inspects `sys.modules` on import. If any of `torch`, `torchvision`,
+`kornia`, `einops`, or `timm` are already loaded, it raises a descriptive `ImportError`
+with a clear fix message instead of silently segfaulting.
+
+### Issues 2 & 5 — Type hints and coordinate utilities
+- Added `from __future__ import annotations` and `Optional`/`Union` imports to
+  `registration.py`.
+- Annotated the primary public API: `load_registrar()`, `Slide.warp_img()`,
+  `Slide.warp_xy()`, `Slide.warp_geojson()`, `Valis.__init__()`, `Valis.register()`,
+  `Valis.warp_and_save_slides()`.
+- Added `rc_to_wh(shape_rc)` and `wh_to_rc(wh)` conversion utilities to
+  `warp_tools.py` to replace ad-hoc `[::-1]` slicing.
+
+### Issue 8 — Unit tests (`tests/test_unit.py`)
+Added 17 unit tests (no external datasets required) covering:
+- `rc_to_wh` / `wh_to_rc` roundtrips and edge cases
+- `CropMode` enum values and backward-compat constants
+- `Valis` construction validation (bad path, empty dir, single image)
+- `get_alignment_indices` edge cases
 
 A reasonable starting point that would have the most immediate usability impact without requiring a full rewrite:
 
-1. Add type hints to all public API methods (issues 2, 5)
-2. Replace string constants with enums (issue 4)
+1. ~~Add type hints to all public API methods (issues 2, 5)~~ **done (partial)**
+2. ~~Replace string constants with enums (issue 4)~~ **done**
+3. ~~Add construction validation (issue 13)~~ **done**
+4. ~~Fix or guard the import-order segfault (issue 9)~~ **done**
+5. ~~Add unit tests for coordinate transforms and crop logic (issue 8)~~ **done (partial)**
 3. Add construction validation (issue 13)
 4. Fix or guard the import-order segfault (issue 9)
 5. Add unit tests for coordinate transforms and crop logic (issue 8)

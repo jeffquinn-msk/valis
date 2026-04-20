@@ -2,7 +2,10 @@
 Classes and functions to register a collection of images
 """
 
+from __future__ import annotations
+
 import logging
+from typing import Optional, Union
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -121,9 +124,35 @@ DEFAULT_NON_RIGID_CLASS = non_rigid_registrars.OpticalFlowWarper()
 DEFAULT_NON_RIGID_KWARGS = {}
 
 # Cropping options
-CROP_OVERLAP = "overlap"
-CROP_REF = "reference"
-CROP_NONE = "all"
+import sys as _sys
+if _sys.version_info >= (3, 11):
+    from enum import StrEnum as _StrEnum
+else:
+    from enum import Enum as _Enum
+
+    class _StrEnum(str, _Enum):
+        pass
+
+
+class CropMode(_StrEnum):
+    """How to crop registered images.
+
+    Being a StrEnum, string literals ("overlap", "reference", "all") are still
+    accepted wherever a CropMode is expected, so existing code is unaffected.
+    """
+
+    OVERLAP = "overlap"
+    """Crop to the area where all images overlap."""
+    REFERENCE = "reference"
+    """Crop to the area overlapping with the reference image."""
+    NONE = "all"
+    """No cropping — use all pixels."""
+
+
+# Keep module-level aliases for backward compatibility
+CROP_OVERLAP = CropMode.OVERLAP
+CROP_REF = CropMode.REFERENCE
+CROP_NONE = CropMode.NONE
 
 DEFAULT_COMPRESSION = pyvips.enums.ForeignTiffCompression.DEFLATE
 # Messages
@@ -142,12 +171,12 @@ PROCESS_IMG_MSG, NORM_IMG_MSG, DENOISE_MSG = valtils.pad_strings(
 )
 
 
-def load_registrar(src_f):
+def load_registrar(src_f: Union[str, pathlib.Path]) -> "Valis":
     """Load a Valis object
 
     Parameters
     ----------
-    src_f : string
+    src_f : str or Path
         Path to pickled Valis object
 
     Returns
@@ -761,7 +790,13 @@ class Slide(object):
         fget=get_fwd_dxdy, fset=set_fwd_dxdy, doc="Get forward displacements"
     )
 
-    def warp_img(self, img=None, non_rigid=True, crop=True, interp_method="bicubic"):
+    def warp_img(
+        self,
+        img: Optional[np.ndarray] = None,
+        non_rigid: bool = True,
+        crop: Union[bool, str, "CropMode"] = True,
+        interp_method: str = "bicubic",
+    ) -> np.ndarray:
         """Warp an image using the registration parameters
 
         img : ndarray, optional
@@ -772,13 +807,14 @@ class Slide(object):
             Whether or not to conduct non-rigid warping. If False,
             then only a rigid transformation will be applied.
 
-        crop: bool, str
+        crop: bool, str, or CropMode
             How to crop the registered images. If `True`, then the same crop used
             when initializing the `Valis` object will be used. If `False`, the
-            image will not be cropped. If "overlap", the warped slide will be
-            cropped to include only areas where all images overlapped.
-            "reference" crops to the area that overlaps with the reference image,
-            defined by `reference_img_f` when initialzing the `Valis object`.
+            image will not be cropped. If "overlap" or CropMode.OVERLAP, the warped
+            slide will be cropped to include only areas where all images overlapped.
+            "reference" or CropMode.REFERENCE crops to the area that overlaps with
+            the reference image, defined by `reference_img_f` when initializing
+            the `Valis` object.
 
         interp_method : str
             Interpolation method used when warping slide. Default is "bicubic"
@@ -1200,7 +1236,15 @@ class Slide(object):
             pyramid=pyramid,
         )
 
-    def warp_xy(self, xy, M=None, slide_level=0, pt_level=0, non_rigid=True, crop=True):
+    def warp_xy(
+        self,
+        xy: np.ndarray,
+        M: Optional[np.ndarray] = None,
+        slide_level: Union[int, tuple[int, int]] = 0,
+        pt_level: Union[int, tuple[int, int]] = 0,
+        non_rigid: bool = True,
+        crop: Union[bool, str, "CropMode"] = True,
+    ) -> np.ndarray:
         """Warp points using registration parameters
 
         Warps `xy` to their location in the registered slide/image
@@ -1391,15 +1435,21 @@ class Slide(object):
         return xy_in_unwarped_to_img
 
     def warp_geojson(
-        self, geojson_f, M=None, slide_level=0, pt_level=0, non_rigid=True, crop=True
-    ):
+        self,
+        geojson_f: Union[str, pathlib.Path],
+        M: Optional[np.ndarray] = None,
+        slide_level: Union[int, tuple[int, int]] = 0,
+        pt_level: Union[int, tuple[int, int]] = 0,
+        non_rigid: bool = True,
+        crop: Union[bool, str, "CropMode"] = True,
+    ) -> dict:
         """Warp geometry using registration parameters
 
         Warps geometries to their location in the registered slide/image
 
         Parameters
         ----------
-        geojson_f : str
+        geojson_f : str or Path
             Path to geojson file containing the annotation geometries. Assumes
             coordinates are in pixels.
 
@@ -1912,11 +1962,11 @@ class Valis(object):
     )
     def __init__(
         self,
-        src_dir,
-        dst_dir,
-        series=None,
-        name=None,
-        image_type=None,
+        src_dir: Union[str, pathlib.Path],
+        dst_dir: Union[str, pathlib.Path],
+        series: Optional[int] = None,
+        name: Optional[str] = None,
+        image_type: Optional[str] = None,
         feature_detector_cls=None,
         transformer_cls=DEFAULT_TRANSFORM_CLASS,
         affine_optimizer_cls=DEFAULT_AFFINE_OPTIMIZER_CLASS,
@@ -2191,7 +2241,19 @@ class Valis(object):
                 )
                 logger.warning(msg)
         else:
+            src_path = pathlib.Path(src_dir)
+            if not src_path.exists():
+                raise FileNotFoundError(f"src_dir does not exist: {src_dir}")
+            if not src_path.is_dir():
+                raise NotADirectoryError(f"src_dir is not a directory: {src_dir}")
             self.get_imgs_in_dir()
+            if len(self.original_img_list) == 0:
+                raise ValueError(f"No supported images found in {src_dir}")
+            if len(self.original_img_list) < 2:
+                raise ValueError(
+                    f"At least 2 images are required for registration, "
+                    f"but only {len(self.original_img_list)} was found in {src_dir}"
+                )
 
         if reference_img_f is not None:
             img_names = [valtils.get_name(f) for f in self.original_img_list]
@@ -5358,13 +5420,13 @@ class Valis(object):
     def register(
         self,
         brightfield_processing_cls=DEFAULT_BRIGHTFIELD_CLASS,
-        brightfield_processing_kwargs=DEFAULT_BRIGHTFIELD_PROCESSING_ARGS,
+        brightfield_processing_kwargs: dict = DEFAULT_BRIGHTFIELD_PROCESSING_ARGS,
         if_processing_cls=DEFAULT_FLOURESCENCE_CLASS,
-        if_processing_kwargs=DEFAULT_FLOURESCENCE_PROCESSING_ARGS,
-        processor_dict=None,
+        if_processing_kwargs: dict = DEFAULT_FLOURESCENCE_PROCESSING_ARGS,
+        processor_dict: Optional[dict] = None,
         reader_cls=None,
-        reader_dict=None,
-    ):
+        reader_dict: Optional[dict] = None,
+    ) -> tuple:
         """Register a collection of images
 
         This function will convert the slides to images, pre-process and normalize them, and
@@ -5959,17 +6021,17 @@ class Valis(object):
     @valtils.deprecated_args(perceputally_uniform_channel_colors="colormap")
     def warp_and_save_slides(
         self,
-        dst_dir,
-        level=0,
-        non_rigid=True,
-        crop=True,
+        dst_dir: Union[str, pathlib.Path],
+        level: int = 0,
+        non_rigid: bool = True,
+        crop: Union[bool, str, CropMode] = True,
         colormap=slide_io.CMAP_AUTO,
-        interp_method="bicubic",
-        tile_wh=None,
+        interp_method: str = "bicubic",
+        tile_wh: Optional[int] = None,
         compression=DEFAULT_COMPRESSION,
-        Q=100,
-        pyramid=True,
-    ):
+        Q: int = 100,
+        pyramid: bool = True,
+    ) -> None:
 
         f"""Warp and save all slides
 

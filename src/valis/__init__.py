@@ -1,5 +1,20 @@
 __version__ = "1.2.0"
 
+import sys as _sys
+import warnings as _warnings
+
+# Guard against the known import-order segfault: valis must be imported before
+# any pytorch-related package (torch, torchvision, kornia, etc.).  Raise a
+# clear error instead of silently crashing so users can fix their import order.
+_TORCH_RELATED = {"torch", "torchvision", "kornia", "einops", "timm"}
+_already_imported = _TORCH_RELATED.intersection(_sys.modules)
+if _already_imported:
+    raise ImportError(
+        "valis must be imported before pytorch-related packages "
+        f"({', '.join(sorted(_already_imported))}). "
+        "Move 'import valis' to the top of your script, before any torch/kornia imports."
+    )
+
 from . import affine_optimizer
 from . import feature_detectors
 from . import feature_matcher

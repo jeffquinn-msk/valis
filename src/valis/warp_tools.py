@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 
 pyvips.cache_set_max(0)
 
+
+def rc_to_wh(shape_rc: tuple[int, int]) -> tuple[int, int]:
+    """Convert a (row, col) shape to (width, height) — i.e. reverse the axes."""
+    return shape_rc[1], shape_rc[0]
+
+
+def wh_to_rc(wh: tuple[int, int]) -> tuple[int, int]:
+    """Convert a (width, height) size to (row, col) shape — i.e. reverse the axes."""
+    return wh[1], wh[0]
+
+
 def is_pyvips_22():
     return version.parse(pyvips.__version__) >= version.parse("2.2.0")
 
