@@ -44,15 +44,23 @@ dependencies = [
     "aicspylibczi<4.0.0,>=3.1.2",
     "setuptools>=69.0.3",
     "scikit-image<1.0.0,>=0.24.0",
-    "kornia<1.0.0,>=0.7.3",
-    "einops<1.0.0,>=0.8.0",
-    "torchvision<1.0.0,>=0.20.1",
     "openpyxl<4.0.0,>=3.1.5",
     "simpleitk<3.0.0,>=2.4.1",
     "lxml>=5.4.0",
     "pyvips>2.2.1",
-    "torch>=2.7.1",
 ]
+
+[project.optional-dependencies]
+# Deep-learning feature detectors/matchers (SuperPoint, SuperGlue, DISK, DeDoDe,
+# LightGlue).  Install with: pip install 'valis-wsi[dl]'
+dl = [
+    "torch>=2.7.1",
+    "torchvision<1.0.0,>=0.20.1",
+    "kornia<1.0.0,>=0.7.3",
+    "einops<1.0.0,>=0.8.0",
+]
+# Convenience alias that includes dl deps (backward-compatible full install)
+full = ["valis-wsi[dl]"]
 
 [dependency-groups]
 dev = [

@@ -4,8 +4,10 @@ import sys as _sys
 import warnings as _warnings
 
 # Guard against the known import-order segfault: valis must be imported before
-# any pytorch-related package (torch, torchvision, kornia, etc.).  Raise a
-# clear error instead of silently crashing so users can fix their import order.
+# any pytorch-related package (torch, torchvision, kornia, etc.).  If those
+# packages are already in sys.modules they must have been imported beforehand,
+# which is the unsafe ordering.  Raise a clear error instead of segfaulting.
+# (When torch is not installed this guard is never triggered.)
 _TORCH_RELATED = {"torch", "torchvision", "kornia", "einops", "timm"}
 _already_imported = _TORCH_RELATED.intersection(_sys.modules)
 if _already_imported:

@@ -1,11 +1,8 @@
 """Functions and classes to match and filter image features"""
 
 import logging
-import torch
-import kornia
 import numpy as np
 import cv2
-import torch
 from copy import deepcopy
 from sklearn import metrics
 from sklearn.metrics.pairwise import pairwise_kernels
@@ -13,7 +10,14 @@ from skimage import transform
 import traceback
 
 from . import warp_tools, valtils, feature_detectors
-from .superglue_models import matching, superglue, superpoint
+
+try:
+    import torch
+    import kornia
+    from .superglue_models import matching, superglue, superpoint
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -1219,6 +1223,11 @@ class SuperGlueMatcher(Matcher):
             filter_method is "GMS".
         """
 
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                "SuperGlueMatcher requires torch and kornia. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
         super().__init__(
             metric=metric,
             metric_type=metric_type,
@@ -1510,6 +1519,11 @@ class LightGlueMatcher(Matcher):
         ----------
         """
 
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                "LightGlueMatcher requires torch and kornia. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

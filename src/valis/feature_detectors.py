@@ -9,18 +9,23 @@ an example
 """
 
 import logging
-import torch
-import kornia
 import cv2
 from skimage import feature, exposure
 from skimage import color as skcolor
 import numpy as np
 import traceback
-from kornia.feature import DISK, DeDoDe
 from . import valtils
 from . import warp_tools
 from . import preprocessing
-from .superglue_models import superpoint
+
+try:
+    import torch
+    import kornia
+    from kornia.feature import DISK, DeDoDe
+    from .superglue_models import superpoint
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +135,7 @@ class FeatureDD(object):
                 _img = np.zeros((10, 10), dtype=np.uint8)
                 kp_descriptor.detectAndCompute(_img, mask=None)
 
-            except:
+            except Exception:
                 traceback_msg = traceback.format_exc()
                 msg = f"{self.kp_descriptor_name} unable to both detect and compute features. Setting to {DEFAULT_FEATURE_DETECTOR.__class__.__name__}"
                 logger.warning(f"{msg}\n{traceback_msg}")
@@ -534,6 +539,11 @@ class SuperPointFD(FeatureDD):
         kp_descriptor : optional, OpenCV feature descriptor
 
         """
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                "SuperPointFD requires torch and kornia. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
         super().__init__(
             kp_detector=kp_detector, kp_descriptor=kp_descriptor, *args, **kwargs
         )
@@ -652,6 +662,11 @@ class KorniaFD(FeatureDD):
         *args,
         **kwargs,
     ):
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                f"{self.__class__.__name__} requires torch and kornia. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
         super().__init__(*args, **kwargs)
 
         self.rgb = rgb

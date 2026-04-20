@@ -77,10 +77,18 @@ DEFAULT_NORM_METHOD = "img_stats"
 # Default rigid registration parameters #
 DEFAULT_FD = feature_detectors.VggFD
 DEFAULT_TRANSFORM_CLASS = transform.SimilarityTransform
-DEFAULT_MATCHER = feature_matcher.LightGlueMatcher(
-    match_filter_method=feature_matcher.DEFAULT_RANSAC_NAME,
-    feature_detector=feature_detectors.DiskFD(),
-)
+
+try:
+    DEFAULT_MATCHER = feature_matcher.LightGlueMatcher(
+        match_filter_method=feature_matcher.DEFAULT_RANSAC_NAME,
+        feature_detector=feature_detectors.DiskFD(),
+    )
+except ImportError:
+    DEFAULT_MATCHER = feature_matcher.Matcher(
+        match_filter_method=feature_matcher.DEFAULT_RANSAC_NAME,
+        feature_detector=feature_detectors.VggFD(),
+    )
+
 DEFAULT_MATCHER_FOR_SORTING = feature_matcher.Matcher(
     match_filter_method=feature_matcher.DEFAULT_RANSAC_NAME,
     feature_detector=feature_detectors.VggFD(),
@@ -202,6 +210,91 @@ def load_registrar(src_f: Union[str, pathlib.Path]) -> "Valis":
             slide_obj.update_results_img_paths()
 
     return registrar
+
+
+class DisplacementField:
+    """Owns a single displacement field, transparently backed by memory or disk.
+
+    Encapsulates the three-way storage state that ``Slide`` previously managed
+    with ``stored_dxdy``, ``_bk_dxdy_np``, and ``_bk_dxdy_f`` attributes.
+
+    Parameters
+    ----------
+    array : ndarray, optional
+        In-memory numpy displacement array.
+    path : str or Path, optional
+        Path to a TIFF on disk (used when ``stored_dxdy=True``).
+    """
+
+    def __init__(
+        self,
+        array: Optional[np.ndarray] = None,
+        path: Optional[Union[str, pathlib.Path]] = None,
+    ):
+        self._array: Optional[np.ndarray] = array
+        self._path: Optional[pathlib.Path] = pathlib.Path(path) if path else None
+
+    # ------------------------------------------------------------------
+    # Properties
+
+    @property
+    def is_empty(self) -> bool:
+        return self._array is None and self._path is None
+
+    @property
+    def is_on_disk(self) -> bool:
+        return self._path is not None
+
+    # ------------------------------------------------------------------
+    # Data access
+
+    def as_numpy(self) -> Optional[np.ndarray]:
+        """Return displacement as a numpy array (lazy-loads from disk if needed)."""
+        if self._array is not None:
+            return self._array
+        if self._path is not None and self._path.exists():
+            vips_img = pyvips.Image.new_from_file(str(self._path))
+            return warp_tools.vips2numpy(vips_img)
+        return None
+
+    def as_vips(self) -> Optional[pyvips.Image]:
+        """Return displacement as a pyvips Image (lazy-loads from disk if needed)."""
+        if self._path is not None and self._path.exists():
+            return pyvips.Image.new_from_file(str(self._path))
+        if self._array is not None:
+            return warp_tools.numpy2vips(self._array)
+        return None
+
+    # ------------------------------------------------------------------
+    # Persistence
+
+    def set_array(self, array: np.ndarray) -> None:
+        """Store displacement as an in-memory numpy array."""
+        if isinstance(array, pyvips.Image):
+            raise TypeError(
+                "DisplacementField.set_array() expects a numpy array; "
+                "use set_path() for pyvips-backed storage."
+            )
+        self._array = array
+
+    def set_path(self, path: Union[str, pathlib.Path]) -> None:
+        """Record the on-disk path (does not read from or write to it)."""
+        self._path = pathlib.Path(path)
+
+    def save(self, path: Union[str, pathlib.Path]) -> None:
+        """Save the in-memory array to *path* as a TIFF."""
+        if self._array is None:
+            raise ValueError("No in-memory array to save.")
+        path = pathlib.Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        vips_img = warp_tools.numpy2vips(self._array)
+        vips_img.tiffsave(str(path))
+        self._path = path
+
+    def load(self, path: Union[str, pathlib.Path]) -> None:
+        """Load the displacement from *path* into memory."""
+        self._path = pathlib.Path(path)
+        self._array = None  # force lazy reload on next as_numpy() call
 
 
 class Slide(object):
@@ -1699,6 +1792,140 @@ class Slide(object):
         return scaled_padded_np
 
 
+from dataclasses import dataclass, field
+
+
+@dataclass
+class RegistrationConfig:
+    """Groups the registration-flow parameters for ``Valis``.
+
+    Passing a ``RegistrationConfig`` to ``Valis.__init__`` via the ``config``
+    keyword is the preferred way to configure the pipeline for new code.
+    All individual keyword arguments on ``Valis.__init__`` continue to work
+    unchanged for backward compatibility; if both are supplied the explicit
+    keyword argument takes precedence over the value in ``config``.
+
+    Parameters
+    ----------
+    feature_detector_cls :
+        FeatureDD class for feature detection.  ``None`` means use whatever
+        is set on ``matcher``.
+    matcher :
+        Matcher used after image ordering.
+    matcher_for_sorting :
+        Matcher used to build the image-dissimilarity matrix.
+    transformer_cls :
+        Scikit-image rigid transform class.
+    affine_optimizer_cls :
+        AffineOptimizer class, or ``None`` to skip optimisation.
+    similarity_metric :
+        Metric for building the dissimilarity matrix (``"n_matches"`` or a
+        scipy distance string).
+    non_rigid_registrar_cls :
+        NonRigidRegistrar instance, or ``None`` to skip non-rigid registration.
+    non_rigid_reg_params :
+        Keyword arguments forwarded to ``non_rigid_registrar_cls``.
+    compose_non_rigid :
+        Whether to compose non-rigid deformation fields serially.
+    micro_rigid_registrar_cls :
+        MicroRigidRegistrar class for high-resolution refinement, or ``None``.
+    micro_rigid_registrar_params :
+        Keyword arguments forwarded to ``micro_rigid_registrar_cls``.
+    imgs_ordered :
+        ``True`` if images are already in the correct order.
+    do_rigid :
+        ``True`` to perform rigid registration.
+    denoise_rigid :
+        ``True`` to denoise processed images before rigid registration.
+    crop_for_rigid_reg :
+        ``True`` to zoom into the tissue mask before rigid registration.
+    check_for_reflections :
+        ``True`` to test whether flipped/mirrored images align better.
+    max_image_dim_px :
+        Maximum width/height of images loaded from pyramid levels.
+    max_processed_image_dim_px :
+        Maximum width/height of processed images used for feature detection.
+    max_non_rigid_registration_dim_px :
+        Maximum width/height used for non-rigid registration.
+    crop :
+        Default crop mode for warped output.  Accepts a ``CropMode`` value or
+        the equivalent string (``"overlap"``, ``"reference"``, ``"all"``).
+    create_masks :
+        ``True`` to create and apply tissue masks during registration.
+    thumbnail_size :
+        Maximum width/height of the result thumbnails written to ``dst_dir``.
+    norm_method :
+        Normalisation strategy: ``"img_stats"``, ``"histo_match"``, or ``None``.
+
+    Examples
+    --------
+    Use the defaults (equivalent to calling ``Valis`` with no configuration
+    kwargs):
+
+    >>> from valis.registration import Valis, RegistrationConfig
+    >>> registrar = Valis(src_dir, dst_dir, config=RegistrationConfig())
+
+    IHC-optimised preset — larger processing window, no non-rigid step:
+
+    >>> cfg = RegistrationConfig.for_ihc()
+    >>> registrar = Valis(src_dir, dst_dir, config=cfg)
+    """
+
+    feature_detector_cls: object = None
+    matcher: object = field(default_factory=lambda: DEFAULT_MATCHER)
+    matcher_for_sorting: object = field(
+        default_factory=lambda: DEFAULT_MATCHER_FOR_SORTING
+    )
+    transformer_cls: type = DEFAULT_TRANSFORM_CLASS
+    affine_optimizer_cls: Optional[type] = DEFAULT_AFFINE_OPTIMIZER_CLASS
+    similarity_metric: str = DEFAULT_SIMILARITY_METRIC
+    non_rigid_registrar_cls: object = field(
+        default_factory=lambda: DEFAULT_NON_RIGID_CLASS
+    )
+    non_rigid_reg_params: dict = field(default_factory=dict)
+    compose_non_rigid: bool = False
+    micro_rigid_registrar_cls: Optional[type] = None
+    micro_rigid_registrar_params: dict = field(default_factory=dict)
+    imgs_ordered: bool = False
+    do_rigid: bool = True
+    denoise_rigid: bool = False
+    crop_for_rigid_reg: bool = True
+    check_for_reflections: bool = False
+    max_image_dim_px: int = DEFAULT_MAX_IMG_DIM
+    max_processed_image_dim_px: int = DEFAULT_MAX_PROCESSED_IMG_SIZE
+    max_non_rigid_registration_dim_px: int = DEFAULT_MAX_NON_RIGID_REG_SIZE
+    crop: Optional[Union[str, "CropMode"]] = None
+    create_masks: bool = True
+    thumbnail_size: int = DEFAULT_THUMBNAIL_SIZE
+    norm_method: Optional[str] = DEFAULT_NORM_METHOD
+
+    @classmethod
+    def for_ihc(cls) -> "RegistrationConfig":
+        """Preset for brightfield IHC/H&E image series.
+
+        Uses a larger processing window for better feature coverage and skips
+        non-rigid registration, which is often unnecessary for well-prepared
+        brightfield sections.
+        """
+        return cls(
+            max_processed_image_dim_px=1024,
+            non_rigid_registrar_cls=None,
+            crop=CropMode.REFERENCE,
+        )
+
+    @classmethod
+    def for_cycif(cls) -> "RegistrationConfig":
+        """Preset for cyclic immunofluorescence (CyCIF) image series.
+
+        Enables non-rigid registration and uses overlap cropping to handle
+        the field-of-view shifts common in multi-round imaging.
+        """
+        return cls(
+            non_rigid_registrar_cls=DEFAULT_NON_RIGID_CLASS,
+            crop=CropMode.OVERLAP,
+        )
+
+
 class Valis(object):
     """Reads, registers, and saves a series of slides/images
 
@@ -1744,6 +1971,37 @@ class Valis(object):
 
     In addition to warping images and slides, VALIS can also warp point data,
     such as cell centoids or ROI coordinates.
+
+    Choosing a warp method
+    ----------------------
+    After calling ``register()``, use whichever method matches your target:
+
+    ==========================================  ====================================
+    Goal                                        Method
+    ==========================================  ====================================
+    Warp a numpy image array                    ``Slide.warp_img()``
+    Warp between two specific slides            ``Slide.warp_img_from_to()``
+    Transform (x, y) point coordinates         ``Slide.warp_xy()``
+    Transform GeoJSON annotation geometries    ``Slide.warp_geojson()``
+    Warp all slides and write to disk           ``Valis.warp_and_save_slides()``
+    Merge multi-channel slides into one file    ``Valis.warp_and_merge_slides()``
+    ==========================================  ====================================
+
+    Choosing a crop mode
+    --------------------
+    The ``crop`` parameter (accepts a string or ``CropMode`` enum) controls how
+    the registered output is trimmed:
+
+    ========================  ================================================
+    Value                     Behaviour
+    ========================  ================================================
+    ``"overlap"``             Keep only the region where **all** images overlap.
+                              Best for series where slides shift significantly.
+    ``"reference"``           Keep the region that overlaps with the reference
+                              image.  Good when one slide is "ground truth".
+    ``"all"``                 No cropping — preserve every pixel (may contain
+                              black fill where slides do not overlap).
+    ========================  ================================================
 
     Attributes
     ----------
@@ -1967,6 +2225,7 @@ class Valis(object):
         series: Optional[int] = None,
         name: Optional[str] = None,
         image_type: Optional[str] = None,
+        config: Optional["RegistrationConfig"] = None,
         feature_detector_cls=None,
         transformer_cls=DEFAULT_TRANSFORM_CLASS,
         affine_optimizer_cls=DEFAULT_AFFINE_OPTIMIZER_CLASS,
@@ -2213,6 +2472,56 @@ class Valis(object):
             Used to emit signals that update the GUI's progress bars
 
         """
+
+        # Apply RegistrationConfig values as defaults for any param still at its
+        # sentinel (the module-level default).  Explicit keyword args take precedence.
+        if config is not None:
+            if feature_detector_cls is None:
+                feature_detector_cls = config.feature_detector_cls
+            if matcher is DEFAULT_MATCHER:
+                matcher = config.matcher
+            if matcher_for_sorting is DEFAULT_MATCHER_FOR_SORTING:
+                matcher_for_sorting = config.matcher_for_sorting
+            if transformer_cls is DEFAULT_TRANSFORM_CLASS:
+                transformer_cls = config.transformer_cls
+            if affine_optimizer_cls is DEFAULT_AFFINE_OPTIMIZER_CLASS:
+                affine_optimizer_cls = config.affine_optimizer_cls
+            if similarity_metric == DEFAULT_SIMILARITY_METRIC:
+                similarity_metric = config.similarity_metric
+            if non_rigid_registrar_cls is DEFAULT_NON_RIGID_CLASS:
+                non_rigid_registrar_cls = config.non_rigid_registrar_cls
+            if non_rigid_reg_params is DEFAULT_NON_RIGID_KWARGS:
+                non_rigid_reg_params = config.non_rigid_reg_params
+            if not compose_non_rigid:
+                compose_non_rigid = config.compose_non_rigid
+            if micro_rigid_registrar_cls is None:
+                micro_rigid_registrar_cls = config.micro_rigid_registrar_cls
+            if not micro_rigid_registrar_params:
+                micro_rigid_registrar_params = config.micro_rigid_registrar_params
+            if not imgs_ordered:
+                imgs_ordered = config.imgs_ordered
+            if do_rigid:
+                do_rigid = config.do_rigid
+            if not denoise_rigid:
+                denoise_rigid = config.denoise_rigid
+            if crop_for_rigid_reg:
+                crop_for_rigid_reg = config.crop_for_rigid_reg
+            if not check_for_reflections:
+                check_for_reflections = config.check_for_reflections
+            if max_image_dim_px == DEFAULT_MAX_IMG_DIM:
+                max_image_dim_px = config.max_image_dim_px
+            if max_processed_image_dim_px == DEFAULT_MAX_PROCESSED_IMG_SIZE:
+                max_processed_image_dim_px = config.max_processed_image_dim_px
+            if max_non_rigid_registration_dim_px == DEFAULT_MAX_NON_RIGID_REG_SIZE:
+                max_non_rigid_registration_dim_px = config.max_non_rigid_registration_dim_px
+            if crop is None and config.crop is not None:
+                crop = config.crop
+            if create_masks:
+                create_masks = config.create_masks
+            if thumbnail_size == DEFAULT_THUMBNAIL_SIZE:
+                thumbnail_size = config.thumbnail_size
+            if norm_method == DEFAULT_NORM_METHOD:
+                norm_method = config.norm_method
 
         # Get name, based on src directory
         if name is None:
