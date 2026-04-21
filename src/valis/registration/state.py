@@ -7,6 +7,7 @@ the sub-module layout is an implementation detail.
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import pickle
@@ -24,6 +25,8 @@ from . _constants import (
     DEFAULT_THUMBNAIL_SIZE, DEFAULT_NORM_METHOD,
 )
 from .. import warp_tools
+
+logger = logging.getLogger(__name__)
 
 
 def load_registrar(src_f: Union[str, pathlib.Path]) -> "Valis":  # noqa: F821

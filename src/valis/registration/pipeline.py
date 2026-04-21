@@ -6,6 +6,7 @@ rather than this sub-module.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional, Union
 
 import os
@@ -66,6 +67,8 @@ from ._constants import (
 )
 from .slide import Slide
 from .state import DisplacementField, RegistrationConfig, load_registrar
+
+logger = logging.getLogger(__name__)
 
 
 class Valis(object):
