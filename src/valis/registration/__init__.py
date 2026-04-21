@@ -17,8 +17,6 @@ slide.py        ``Slide`` class.
 pipeline.py     ``Valis`` class.
 """
 
-from __future__ import annotations
-
 # Re-export everything from _constants so ``registration.CROP_OVERLAP`` etc. work
 from ._constants import (
     CONVERTED_IMG_DIR,

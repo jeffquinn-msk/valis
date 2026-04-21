@@ -4,8 +4,6 @@ Import ``Valis`` and ``RegistrationConfig`` from ``valis.registration``
 rather than this sub-module.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Optional, Union
 

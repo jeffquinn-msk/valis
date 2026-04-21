@@ -5,8 +5,6 @@ Contains ``load_registrar``, ``DisplacementField``, ``CropMode``, and
 the sub-module layout is an implementation detail.
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import pathlib
@@ -145,9 +143,6 @@ class DisplacementField:
         """Load the displacement from *path* into memory."""
         self._path = pathlib.Path(path)
         self._array = None  # force lazy reload on next as_numpy() call
-
-
-from dataclasses import dataclass, field
 
 
 @dataclass
