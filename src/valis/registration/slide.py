@@ -6,7 +6,7 @@ Import ``Slide`` from ``valis.registration`` rather than this sub-module.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 
 import json
 import os
@@ -25,9 +25,6 @@ from ._constants import (
     DEFAULT_COMPRESSION,
 )
 from .state import DisplacementField
-
-if TYPE_CHECKING:
-    from .pipeline import Valis
 
 logger = logging.getLogger(__name__)
 
