@@ -17,6 +17,8 @@ from skimage import exposure
 
 from .. import warp_tools
 from .. import slide_io
+from .. import slide_tools
+from .. import preprocessing
 from .. import valtils
 from ._constants import (
     CROP_OVERLAP, CROP_REF, CROP_NONE,
