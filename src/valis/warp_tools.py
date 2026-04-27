@@ -13,7 +13,6 @@ from skimage import draw, restoration, transform, filters, morphology
 import tqdm
 import cv2
 from PIL import Image, ImageDraw
-import numpy as np
 import weightedstats
 import warnings
 import pyvips
@@ -43,7 +42,6 @@ def wh_to_rc(wh: tuple[int, int]) -> tuple[int, int]:
 
 def is_pyvips_22():
     return version.parse(pyvips.__version__) >= version.parse("2.2.0")
-
 
 
 def get_ref_img_idx(img_f_list, ref_img_name=None):
@@ -912,14 +910,14 @@ def order_points(pts_xy):
     # y-coordinates so we can grab the top-left and bottom-left
     # points, respectively
     leftMost = leftMost[np.argsort(leftMost[:, 1]), :]
-    (tl, bl) = leftMost
+    tl, bl = leftMost
     # now that we have the top-left coordinate, use it as an
     # anchor to calculate the Euclidean distance between the
     # top-left and right-most points; by the Pythagorean
     # theorem, the point with the largest distance will be
     # our bottom-right point
     D = spatial.distance.cdist(tl[np.newaxis], rightMost, "euclidean")[0]
-    (br, tr) = rightMost[np.argsort(D)[::-1], :]
+    br, tr = rightMost[np.argsort(D)[::-1], :]
 
     # return the coordinates in top-left, top-right,
     # bottom-right, and bottom-left order

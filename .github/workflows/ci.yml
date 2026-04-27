@@ -25,6 +25,9 @@ jobs:
      - name: Run black check
        run: uv run black --check .
 
+     - name: Run ruff check
+       run: uv run ruff check src/valis tests examples
+
   tests:
     name: "Python ${{ matrix.python-version }}"
     runs-on: "ubuntu-latest"

@@ -57,7 +57,6 @@ import ome_types
 from skimage import transform
 import shutil
 import sys
-import os
 import pandas as pd
 
 from valis import registration, valtils, slide_io, micro_rigid_registrar

@@ -937,6 +937,7 @@ class SerialNonRigidRegistrar(object):
             non_rigid_reg_obj.__class__.__name__
             == non_rigid_registrars.NonRigidTileRegistrar.__name__
         )
+        updated_dxdy = None
         for moving_idx, fixed_idx in tqdm(
             iter_order, desc="Finding non-rigid transforms", unit="image"
         ):

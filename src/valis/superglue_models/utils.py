@@ -47,6 +47,8 @@ import time
 from collections import OrderedDict
 from threading import Thread
 import logging
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import cv2
 import torch

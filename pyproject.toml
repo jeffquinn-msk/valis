@@ -69,4 +69,16 @@ dev = [
     "sphinx-rtd-theme>=3.0.2",
     "twine>=6.1.0",
     "black>=24.0.0",
+    "ruff>=0.6.0",
 ]
+
+[tool.ruff]
+extend-exclude = ["docs", "src/valis/superglue_models"]
+
+[tool.ruff.lint]
+# Catch real bugs without enforcing stylistic cleanup.
+# F821: undefined name (missing imports — the bug we just fixed)
+# F811: redefinition of unused name (often a missed merge/copy-paste)
+# F823: local variable referenced before assignment
+# E9:   syntax errors
+select = ["F821", "F811", "F823", "E9"]

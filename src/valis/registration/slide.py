@@ -9,11 +9,15 @@ from typing import Optional, Union
 import json
 import os
 import pathlib
+from copy import deepcopy
 
+import colour
 import cv2
 import numpy as np
 import pyvips
-from skimage import exposure
+import shapely
+import tqdm
+from skimage import exposure, transform
 
 from .. import warp_tools
 from .. import slide_io
@@ -21,8 +25,12 @@ from .. import slide_tools
 from .. import preprocessing
 from .. import valtils
 from ._constants import (
-    CROP_OVERLAP, CROP_REF, CROP_NONE,
+    CROP_OVERLAP,
+    CROP_REF,
+    CROP_NONE,
+    CropMode,
     DEFAULT_COMPRESSION,
+    WARP_ANNO_MSG,
 )
 from .state import DisplacementField
 
@@ -1522,4 +1530,3 @@ class Slide(object):
         scaled_padded_np = warp_tools.vips2numpy(scaled_padded)
 
         return scaled_padded_np
-
