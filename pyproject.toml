@@ -1,9 +1,19 @@
+[build-system]
+requires = ["setuptools>=69.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+valis = ["superglue_models/weights/*"]
+
 [project]
 name = "valis"
 version = "1.2.0"
 description = ""
 readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = {file = "LICENSE.txt"}
 authors = [
     {name = "Chandler Gatenbee", email = "chandlergatenbee@gmail.com"},
@@ -60,7 +70,7 @@ dl = [
     "einops<1.0.0,>=0.8.0",
 ]
 # Convenience alias that includes dl deps (backward-compatible full install)
-full = ["valis-wsi[dl]"]
+full = ["valis[dl]"]
 
 [dependency-groups]
 dev = [

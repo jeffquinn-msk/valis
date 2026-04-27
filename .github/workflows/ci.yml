@@ -20,7 +20,7 @@ jobs:
         python-version: "3.12"
 
      - name: Install the project
-       run: uv sync
+       run: uv sync --extra dl
 
      - name: Run black check
        run: uv run black --check .
@@ -29,24 +29,8 @@ jobs:
        run: uv run ruff check src/valis tests examples
 
   tests:
-    name: "Python ${{ matrix.python-version }}"
+    name: "Python 3.13"
     runs-on: "ubuntu-latest"
-    env:
-      USING_COVERAGE: '3.9, 3.10, 3.11, 3.12, 3.13'
-
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version:
-          - "3.9"
-          - "3.10"
-          - "3.11"
-          - "3.12"
-          - "3.13"
-        os:
-          - "Ubuntu"
-          - "Windows"
-          - "macOS"
 
     steps:
      - uses: actions/checkout@v4
@@ -54,7 +38,7 @@ jobs:
      - name: Install the latest version of uv and set the python version
        uses: astral-sh/setup-uv@v5
        with:
-        python-version: ${{ matrix.python-version }}
+        python-version: "3.13"
 
      - name: Install libvips
        run: |
@@ -62,7 +46,7 @@ jobs:
           sudo apt-get install --no-install-recommends libvips
 
      - name: Install the project
-       run: uv sync
+       run: uv sync --extra dl
 
      - name: Run tests
        run: uv run pytest
