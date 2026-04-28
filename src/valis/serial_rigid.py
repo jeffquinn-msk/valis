@@ -1100,7 +1100,10 @@ class SerialRigidRegistrar(object):
 
         def _estimate_error(kp1, kp2):
             error_estimator = transform.SimilarityTransform()
-            error_estimator.estimate(kp1, kp2)
+            try:
+                error_estimator.estimate(kp1, kp2)
+            except np.linalg.LinAlgError:
+                return np.inf
             warped_1 = error_estimator(kp1)
             estimated_d = np.mean(warp_tools.calc_d(warped_1, kp2))
 
