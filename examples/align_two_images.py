@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import time
 from valis import registration, feature_matcher, feature_detectors, preprocessing
 from valis.serial_rigid import TooFewMatchesError
@@ -605,6 +606,13 @@ def main():
     args = get_parser().parse_args()
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
+    print("=== align_two_images invocation ===", flush=True)
+    print(f"  argv         : {' '.join(sys.argv)}", flush=True)
+    print(f"  cwd          : {os.getcwd()}", flush=True)
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k:<24}: {v}", flush=True)
+    print("===================================", flush=True)
+
 
     img_out_path = os.path.join(args.output_dir, os.path.basename(args.image))
     ref_out_path = os.path.join(args.output_dir, os.path.basename(args.reference))
@@ -633,6 +641,29 @@ def main():
         "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
         "luminosity": [preprocessing.Luminosity, {}],
     }
+
+    # `auto` resolves *here*, not inside valis. Valis's default for a 1-band
+    # uchar (assumed-fluorescence) input is to leave polarity untouched —
+    # which silently breaks cross-modal matching when the input is *inverted*
+    # DAPI (dark nuclei on bright bg). We pick a real processor based on
+    # bands + mean intensity so 'nuclei = bright' on both sides, which is
+    # what the matcher actually needs.
+    def _resolve_auto_stain(path: str) -> str:
+        peek = pyvips.Image.new_from_file(path, page=0)
+        thumb = pyvips_to_thumbnail_array(peek, 256)
+        mean = float(thumb.mean())
+        if peek.bands >= 3:
+            return "he-hematoxylin"
+        # single-band: high mean => bright bg (inverted DAPI), un-invert
+        return "inverted-fluorescence" if mean > 127 else "luminosity"
+
+    if args.image_stain == "auto":
+        args.image_stain = _resolve_auto_stain(args.image)
+        print(f"[auto-stain] --image -> {args.image_stain}")
+    if args.reference_stain == "auto":
+        args.reference_stain = _resolve_auto_stain(args.reference)
+        print(f"[auto-stain] --reference -> {args.reference_stain}")
+
     reference_path = os.path.join(
         args.output_dir, os.path.basename(args.reference)
     )

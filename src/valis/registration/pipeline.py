@@ -114,6 +114,9 @@ from .state import DisplacementField, RegistrationConfig, load_registrar
 logger = logging.getLogger(__name__)
 
 
+_UNSET = object()
+
+
 class Valis(object):
     """Reads, registers, and saves a series of slides/images
 
@@ -420,19 +423,19 @@ class Valis(object):
         similarity_metric=DEFAULT_SIMILARITY_METRIC,
         matcher=DEFAULT_MATCHER,
         matcher_for_sorting=DEFAULT_MATCHER_FOR_SORTING,
-        imgs_ordered=False,
+        imgs_ordered=_UNSET,
         non_rigid_registrar_cls=DEFAULT_NON_RIGID_CLASS,
         non_rigid_reg_params=DEFAULT_NON_RIGID_KWARGS,
-        compose_non_rigid=False,
+        compose_non_rigid=_UNSET,
         img_list=None,
         reference_img_f=None,
         align_to_reference=False,
-        do_rigid=True,
+        do_rigid=_UNSET,
         crop=None,
         create_masks=True,
-        denoise_rigid=False,
-        crop_for_rigid_reg=True,
-        check_for_reflections=False,
+        denoise_rigid=_UNSET,
+        crop_for_rigid_reg=_UNSET,
+        check_for_reflections=_UNSET,
         min_rigid_matches=DEFAULT_MIN_RIGID_MATCHES,
         resolution_xyu=None,
         slide_dims_dict_wh=None,
@@ -681,21 +684,21 @@ class Valis(object):
                 non_rigid_registrar_cls = config.non_rigid_registrar_cls
             if non_rigid_reg_params is DEFAULT_NON_RIGID_KWARGS:
                 non_rigid_reg_params = config.non_rigid_reg_params
-            if not compose_non_rigid:
+            if compose_non_rigid is _UNSET:
                 compose_non_rigid = config.compose_non_rigid
             if micro_rigid_registrar_cls is None:
                 micro_rigid_registrar_cls = config.micro_rigid_registrar_cls
             if not micro_rigid_registrar_params:
                 micro_rigid_registrar_params = config.micro_rigid_registrar_params
-            if not imgs_ordered:
+            if imgs_ordered is _UNSET:
                 imgs_ordered = config.imgs_ordered
-            if do_rigid:
+            if do_rigid is _UNSET:
                 do_rigid = config.do_rigid
-            if not denoise_rigid:
+            if denoise_rigid is _UNSET:
                 denoise_rigid = config.denoise_rigid
-            if crop_for_rigid_reg:
+            if crop_for_rigid_reg is _UNSET:
                 crop_for_rigid_reg = config.crop_for_rigid_reg
-            if not check_for_reflections:
+            if check_for_reflections is _UNSET:
                 check_for_reflections = config.check_for_reflections
             if max_image_dim_px == DEFAULT_MAX_IMG_DIM:
                 max_image_dim_px = config.max_image_dim_px
@@ -713,6 +716,21 @@ class Valis(object):
                 thumbnail_size = config.thumbnail_size
             if norm_method == DEFAULT_NORM_METHOD:
                 norm_method = config.norm_method
+
+        # Resolve any boolean kwargs left at the _UNSET sentinel (i.e. neither
+        # explicitly passed nor overridden by a config) to their real defaults.
+        if compose_non_rigid is _UNSET:
+            compose_non_rigid = False
+        if imgs_ordered is _UNSET:
+            imgs_ordered = False
+        if do_rigid is _UNSET:
+            do_rigid = True
+        if denoise_rigid is _UNSET:
+            denoise_rigid = False
+        if crop_for_rigid_reg is _UNSET:
+            crop_for_rigid_reg = True
+        if check_for_reflections is _UNSET:
+            check_for_reflections = False
 
         # Get name, based on src directory
         if name is None:

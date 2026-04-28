@@ -1496,6 +1496,23 @@ class SerialRigidRegistrar(object):
                     )
 
                     # Record info #
+                    n_kp = len(filtered_match_info12.matched_kp1_xy)
+                    if n_kp < 3:
+                        logger.warning(
+                            f"Reflection check (rx={rx}, ry={ry}) for {img_obj.name}: "
+                            f"only {n_kp} matches after filtering — skipping this "
+                            "orientation (cannot fit similarity transform)."
+                        )
+                        reflected_d_vals.append(np.inf)
+                        reflection_M.append(rM)
+                        transforms.append(np.eye(3))
+                        reflected_matches12.append(filtered_match_info12)
+                        reflected_matches21.append(filtered_match_info21)
+                        if keep_unfiltered:
+                            unfiltered_reflected_matches12.append(unfiltered_match_info12)
+                            unfiltered_reflected_matches21.append(unfiltered_match_info21)
+                        continue
+
                     _ = transformer.estimate(
                         filtered_match_info12.matched_kp2_xy,
                         filtered_match_info12.matched_kp1_xy,
