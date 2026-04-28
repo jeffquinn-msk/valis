@@ -706,7 +706,7 @@ def main():
         max_processed_image_dim_px=args.max_processed_image_dim_px,
         max_image_dim_px=args.max_processed_image_dim_px,
         min_rigid_matches=args.min_rigid_matches,
-        check_for_reflections=args.no_script_orientation,
+        check_for_reflections=False,
         similarity_metric="euclidean",
         align_to_reference=True,
     )
