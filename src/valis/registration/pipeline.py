@@ -69,6 +69,7 @@ from ._constants import (
     DEFAULT_THUMBNAIL_SIZE,
     DEFAULT_MAX_NON_RIGID_REG_SIZE,
     DEFAULT_MAX_MICRO_REG_SIZE,
+    DEFAULT_MIN_RIGID_MATCHES,
     TILER_THRESH_GB,
     DEFAULT_NR_TILE_WH,
     AFFINE_OPTIMIZER_KEY,
@@ -85,6 +86,7 @@ from ._constants import (
     TFORM_DST_SHAPE_KEY,
     TFORM_MAT_KEY,
     CHECK_REFLECT_KEY,
+    MIN_RIGID_MATCHES_KEY,
     NON_RIGID_REG_CLASS_KEY,
     NON_RIGID_REG_PARAMS_KEY,
     NON_RIGID_USE_XY_KEY,
@@ -431,6 +433,7 @@ class Valis(object):
         denoise_rigid=False,
         crop_for_rigid_reg=True,
         check_for_reflections=False,
+        min_rigid_matches=DEFAULT_MIN_RIGID_MATCHES,
         resolution_xyu=None,
         slide_dims_dict_wh=None,
         max_image_dim_px=DEFAULT_MAX_IMG_DIM,
@@ -851,6 +854,7 @@ class Valis(object):
             imgs_ordered=imgs_ordered,
             reference_img_f=reference_img_f,
             check_for_reflections=check_for_reflections,
+            min_rigid_matches=min_rigid_matches,
             qt_emitter=qt_emitter,
         )
 
@@ -922,6 +926,7 @@ class Valis(object):
         reference_img_f,
         check_for_reflections,
         qt_emitter,
+        min_rigid_matches=DEFAULT_MIN_RIGID_MATCHES,
     ):
         """Set rigid registration kwargs
         Keyword arguments will be passed to `serial_rigid.register_images`
@@ -944,6 +949,7 @@ class Valis(object):
             REF_IMG_KEY: reference_img_f,
             IMAGES_ORDERD_KEY: imgs_ordered,
             CHECK_REFLECT_KEY: check_for_reflections,
+            MIN_RIGID_MATCHES_KEY: min_rigid_matches,
             QT_EMMITER_KEY: qt_emitter,
         }
 

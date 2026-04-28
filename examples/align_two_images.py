@@ -2,6 +2,7 @@ import argparse
 import os
 import time
 from valis import registration, feature_matcher, feature_detectors, preprocessing
+from valis.serial_rigid import TooFewMatchesError
 import numpy as np
 import pyvips
 
@@ -62,7 +63,14 @@ def get_parser():
         help="Max side length used for feature detection / non-rigid registration. "
         "Higher = better matches but more memory; 4096 OOMs on a 32GB laptop.",
     )
-    stain_choices = ("auto", "he-hematoxylin", "inverted-fluorescence")
+    stain_choices = (
+        "auto",
+        "he-hematoxylin",
+        "inverted-fluorescence",
+        "od",
+        "colorful-standardizer",
+        "luminosity",
+    )
     parser.add_argument(
         "--image-stain",
         choices=stain_choices,
@@ -77,7 +85,93 @@ def get_parser():
         default="auto",
         help="Same as --image-stain but for --reference.",
     )
+    parser.add_argument(
+        "--orientation-margin",
+        type=float,
+        default=0.0,
+        help="Minimum NCC margin (best - identity) required to apply a D4 "
+        "pre-rotation. Below this, the script falls back to identity. "
+        "Default 0 trusts the winning transform; raise it (e.g. 0.05) only "
+        "when the script's heuristic is producing wrong flips.",
+    )
+    parser.add_argument(
+        "--no-script-orientation",
+        action="store_true",
+        help="Skip the script's own D4 pre-rotation entirely and let valis "
+        "handle reflections (via check_for_reflections=True). Useful when the "
+        "script's NCC-based orientation check is too noisy on weak/ambiguous "
+        "stain pairs.",
+    )
+    parser.add_argument(
+        "--min-rigid-matches",
+        type=int,
+        default=30,
+        help="Minimum number of initial keypoint matches required before "
+        "valis's rematch step. Below this, the script aborts with a clear "
+        "error instead of letting valis warp the image with a degenerate "
+        "transform (which OOMs the rematch's feature detection).",
+    )
     return parser
+
+
+class HematoxylinExtractor(preprocessing.ImageProcesser):
+    """Extract the hematoxylin (nuclei) channel from an H&E image.
+
+    Pipeline: Macenko-style normalization against a standard H&E
+    reference (so faded slides come back up to consistent intensity),
+    then deconvolve using ``skimage.color.rgb2hed`` with the fixed
+    Ruifrok-Johnston stain matrix and keep only the H channel.
+
+    This is more robust than per-image Macenko deconvolution alone
+    (``preprocessing.HEDeconvolution``) when the stain is faded,
+    eosin-heavy, or otherwise atypical, because the unmix vectors don't
+    depend on the image content.
+    """
+
+    def create_mask(self):
+        from valis.preprocessing import create_tissue_mask_from_rgb
+
+        _, tissue_mask = create_tissue_mask_from_rgb(self.image)
+        return tissue_mask
+
+    def process_image(self, *args, **kwargs):
+        from skimage.color import rgb2hed
+
+        img = self.image
+        if img.ndim != 3 or img.shape[2] < 3:
+            raise ValueError("HematoxylinExtractor requires an RGB image")
+        rgb = img[..., :3]
+        if rgb.dtype != np.uint8:
+            rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+
+        # Macenko-style normalization to a standard H&E reference. Brings
+        # faded slides up to a consistent stain intensity before unmixing.
+        try:
+            normalized = preprocessing.normalize_he(rgb, Io=240, alpha=1, beta=0.15)
+            # Reproject normalized stain concentrations back to RGB using
+            # the standard Ruifrok-Johnston H/E reference vectors so that
+            # rgb2hed below sees a "canonical" H&E image.
+            ref_stain = np.array(
+                [[0.5626, 0.7201, 0.4062], [0.2159, 0.8012, 0.5581]]
+            )
+            recon_od = ref_stain.T @ normalized
+            recon = np.clip(
+                240.0 * np.exp(-recon_od), 0, 255
+            ).T.reshape(rgb.shape)
+            rgb_for_unmix = recon.astype(np.uint8)
+        except Exception:
+            # Macenko can fail on degenerate (very faded / very dark)
+            # tissue. Fall back to raw RGB rather than aborting.
+            rgb_for_unmix = rgb
+
+        hed = rgb2hed(rgb_for_unmix)
+        h = hed[..., 0]  # hematoxylin channel (positive where stain is dense)
+
+        lo, hi = np.percentile(h, (1, 99))
+        if hi <= lo:
+            hi = lo + 1e-6
+        h = np.clip((h - lo) / (hi - lo), 0.0, 1.0)
+        return (h * 255).astype(np.uint8)
 
 
 class InvertedFluorescence(preprocessing.ImageProcesser):
@@ -153,10 +247,49 @@ def pyvips_to_thumbnail_array(img: pyvips.Image, size: int) -> "np.ndarray":
     return np.frombuffer(mem, dtype=np.uint8).reshape(small.height, small.width)
 
 
+def pyvips_to_thumbnail_rgb_array(img: pyvips.Image, size: int) -> "np.ndarray":
+    """Render a pyvips image to a small RGB numpy array. Used to feed
+    color-aware preprocessors (HEDeconvolution, HematoxylinFixed, OD, ...)
+    on a thumbnail prior to the orientation check.
+    """
+    scale = size / max(img.width, img.height)
+    small = img.resize(scale)
+    if small.format == "ushort":
+        small = (small >> 8).cast("uchar")
+    elif small.format != "uchar":
+        small = small.cast("uchar")
+    if small.bands == 1:
+        small = small.bandjoin([small, small])
+    elif small.bands > 3:
+        small = small[0].bandjoin([small[1], small[2]])
+    mem = small.write_to_memory()
+    return np.frombuffer(mem, dtype=np.uint8).reshape(
+        small.height, small.width, 3
+    )
+
+
+def run_processor_on_thumbnail(
+    processor_spec, thumb_array: "np.ndarray", src_f: str
+) -> "np.ndarray":
+    """Instantiate a valis ``ImageProcesser`` subclass on a thumbnail and
+    return its ``process_image`` output. Used so the orientation check
+    sees the same nuclei-bright signal that valis will register on,
+    rather than raw luminance of two visually dissimilar stains.
+    """
+    cls, kwargs = processor_spec
+    proc = cls(image=thumb_array, src_f=src_f, level=0, series=0)
+    return proc.process_image(**(kwargs or {}))
+
+
 def check_and_correct_orientation(
     moving_img: pyvips.Image,
     reference_img: pyvips.Image,
     downsample_size: int = 2048,
+    margin_threshold: float = 0.05,
+    moving_processor=None,
+    reference_processor=None,
+    moving_src_f: str = "",
+    reference_src_f: str = "",
 ) -> tuple[pyvips.Image, "orientation_check.OrientationMatch"]:
     """Find the best D4 orientation of ``moving_img`` against ``reference_img``
     and return the corrected pyvips image plus the match info.
@@ -164,6 +297,13 @@ def check_and_correct_orientation(
     ``downsample_size`` is the requested thumbnail side. If either input is
     smaller than that on its short side, the effective size is clamped down
     so we never upsample.
+
+    If ``moving_processor`` / ``reference_processor`` are provided, the
+    corresponding side is preprocessed with that valis ``ImageProcesser``
+    before the NCC scoring. This is what makes the check usable across
+    stains: comparing raw luminance of (e.g.) H&E vs. inverted DAPI is
+    essentially noise, but comparing extracted hematoxylin vs. un-inverted
+    DAPI gives a strong, anatomically-aligned signal.
     """
     max_useful = min(
         reference_img.width,
@@ -178,8 +318,20 @@ def check_and_correct_orientation(
             f"{effective_size} (smaller input side)"
         )
 
-    ref_thumb = pyvips_to_thumbnail_array(reference_img, effective_size)
-    mov_thumb = pyvips_to_thumbnail_array(moving_img, effective_size)
+    if reference_processor is not None:
+        rgb = pyvips_to_thumbnail_rgb_array(reference_img, effective_size)
+        ref_thumb = run_processor_on_thumbnail(
+            reference_processor, rgb, reference_src_f
+        )
+    else:
+        ref_thumb = pyvips_to_thumbnail_array(reference_img, effective_size)
+    if moving_processor is not None:
+        rgb = pyvips_to_thumbnail_rgb_array(moving_img, effective_size)
+        mov_thumb = run_processor_on_thumbnail(
+            moving_processor, rgb, moving_src_f
+        )
+    else:
+        mov_thumb = pyvips_to_thumbnail_array(moving_img, effective_size)
 
     match = orientation_check.find_best_orientation(
         ref_thumb, mov_thumb, downsample_size=effective_size, use_gradient=True
@@ -197,7 +349,24 @@ def check_and_correct_orientation(
     for name, score in sorted(match.scores.items(), key=lambda kv: -kv[1]):
         marker = "  <-- chosen" if name == match.name else ""
         print(f"    {name:<14s} {score:+.4f}{marker}")
-    if match.k == 0 and not match.mirror:
+    inconclusive = (
+        margin_threshold > 0
+        and (match.k != 0 or match.mirror)
+        and margin < margin_threshold
+    )
+    if inconclusive:
+        print(
+            f"  >> margin {margin:+.4f} below threshold {margin_threshold}; "
+            "treating orientation check as inconclusive and using identity."
+        )
+        match = orientation_check.OrientationMatch(
+            name="identity",
+            k=0,
+            mirror=False,
+            score=identity_score,
+            scores=match.scores,
+        )
+    elif match.k == 0 and not match.mirror:
         print("  >> images already correctly oriented; no pre-rotation applied.")
     else:
         print(
@@ -436,6 +605,7 @@ def main():
     args = get_parser().parse_args()
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
+
     img_out_path = os.path.join(args.output_dir, os.path.basename(args.image))
     ref_out_path = os.path.join(args.output_dir, os.path.basename(args.reference))
 
@@ -450,20 +620,60 @@ def main():
         ref_img.tiffsave(ref_out_path)
         cb.close()
 
+    # Build a per-image processor dict so we can force nuclei-extraction on
+    # both sides — H&E -> hematoxylin channel, inverted DAPI -> un-inverted
+    # greyscale. Both end up "nuclei = bright", which gives the matcher
+    # something common to lock onto across modalities. We also feed these
+    # processors into the orientation check below so it scores nuclei-vs-
+    # nuclei rather than raw luminance of two visually different stains.
+    stain_to_processor = {
+        "he-hematoxylin": [HematoxylinExtractor, {}],
+        "inverted-fluorescence": [InvertedFluorescence, {}],
+        "od": [preprocessing.OD, {}],
+        "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
+        "luminosity": [preprocessing.Luminosity, {}],
+    }
+    reference_path = os.path.join(
+        args.output_dir, os.path.basename(args.reference)
+    )
+
     # Cheap pre-alignment orientation check. If the moving image is rotated or
     # mirrored relative to the reference, bake the correction into the copy
     # that gets handed to Valis so registration only deals with residuals.
-    ref_for_check = pyvips.Image.new_from_file(ref_out_path, page=0)
-    moving_for_check = pyvips.Image.new_from_file(args.image, page=0)
-    _, orient_match = check_and_correct_orientation(
-        moving_img=moving_for_check,
-        reference_img=ref_for_check,
-        downsample_size=2048,
-    )
+    if args.no_script_orientation:
+        print("[orientation] script orientation check disabled (--no-script-orientation)")
+        orient_match = orientation_check.OrientationMatch(
+            name="identity", k=0, mirror=False, score=0.0, scores={}
+        )
+    else:
+        ref_for_check = pyvips.Image.new_from_file(ref_out_path, page=0)
+        moving_for_check = pyvips.Image.new_from_file(args.image, page=0)
+        _, orient_match = check_and_correct_orientation(
+            moving_img=moving_for_check,
+            reference_img=ref_for_check,
+            downsample_size=2048,
+            margin_threshold=args.orientation_margin,
+            moving_processor=stain_to_processor.get(args.image_stain),
+            reference_processor=stain_to_processor.get(args.reference_stain),
+            moving_src_f=args.image,
+            reference_src_f=args.reference,
+        )
 
     needs_correction = orient_match.k != 0 or orient_match.mirror
+    if needs_correction:
+        # Write the D4-corrected moving image to a distinct filename so we
+        # don't collide with — and silently skip — an already-existing copy
+        # at ``img_out_path`` (which happens whenever ``args.output_dir``
+        # is the same directory as the input).
+        stem, ext = os.path.splitext(os.path.basename(args.image))
+        suffix = f"_k{orient_match.k}_m{int(orient_match.mirror)}"
+        img_out_path = os.path.join(args.output_dir, f"{stem}{suffix}{ext}")
     if not os.path.exists(img_out_path):
         if needs_correction:
+            print(
+                f"[orientation] writing D4-corrected copy to {img_out_path}",
+                flush=True,
+            )
             moving_full = pyvips.Image.new_from_file(args.image, page=0)
             corrected = orientation_check.apply_d4_pyvips(
                 moving_full, orient_match.k, orient_match.mirror
@@ -476,18 +686,9 @@ def main():
         else:
             os.symlink(os.path.abspath(args.image), img_out_path)
 
-    # Build a per-image processor dict so we can force nuclei-extraction on
-    # both sides — H&E -> hematoxylin channel, inverted DAPI -> un-inverted
-    # greyscale. Both end up "nuclei = bright", which gives the matcher
-    # something common to lock onto across modalities.
-    stain_to_processor = {
-        "he-hematoxylin": [preprocessing.HEDeconvolution, {"stain": "hem"}],
-        "inverted-fluorescence": [InvertedFluorescence, {}],
-    }
-    image_path = os.path.join(args.output_dir, os.path.basename(args.image))
-    reference_path = os.path.join(
-        args.output_dir, os.path.basename(args.reference)
-    )
+    # Build the processor_dict against the *final* registered file paths,
+    # which differ from the raw inputs when we wrote a D4-corrected copy.
+    image_path = img_out_path
     processor_dict = {}
     if args.image_stain != "auto":
         processor_dict[image_path] = stain_to_processor[args.image_stain]
@@ -504,15 +705,53 @@ def main():
         thumbnail_size=4096,
         max_processed_image_dim_px=args.max_processed_image_dim_px,
         max_image_dim_px=args.max_processed_image_dim_px,
-        check_for_reflections=False,
+        min_rigid_matches=args.min_rigid_matches,
+        check_for_reflections=args.no_script_orientation,
         similarity_metric="euclidean",
         align_to_reference=True,
     )
-    registrar.register(
-        processor_dict=processor_dict if processor_dict else None,
-    )
-
     matches_dir = os.path.join(args.output_dir, "registration", "matches")
+    try:
+        registrar.register(
+            processor_dict=processor_dict if processor_dict else None,
+        )
+    except TooFewMatchesError as e:
+        # Try to dump whatever matches valis did find before bailing — the
+        # serial-rigid registrar holds the initial-pass match_dict at this
+        # point, which is exactly what the user needs to diagnose the
+        # failure. Pipeline.draw_matches isn't usable yet (relies on
+        # post-rigid attributes), so build the viz from match_dict directly.
+        try:
+            from valis import viz as _viz, warp_tools as _wt
+            os.makedirs(matches_dir, exist_ok=True)
+            srr = registrar.rigid_registrar
+            for moving_idx, fixed_idx in srr.iter_order:
+                moving = srr.img_obj_list[moving_idx]
+                fixed = srr.img_obj_list[fixed_idx]
+                m = fixed.match_dict.get(moving)
+                if m is None:
+                    continue
+                img1 = _wt.resize_img(moving.image, moving.image.shape[:2])
+                img2 = _wt.resize_img(fixed.image, fixed.image.shape[:2])
+                viz_img = _viz.draw_matches(
+                    src_img=img1,
+                    kp1_xy=m.matched_kp2_xy,
+                    dst_img=img2,
+                    kp2_xy=m.matched_kp1_xy,
+                    rad=3,
+                    alignment="horizontal",
+                )
+                out_f = os.path.join(
+                    matches_dir,
+                    f"failed_{moving.name}_to_{fixed.name}_matches.png",
+                )
+                _wt.save_img(out_f, viz_img)
+                print(f"Saved pre-failure match viz: {out_f}")
+        except Exception as draw_err:
+            print(f"(could not draw matches: {draw_err})")
+        print(f"\nALIGNMENT ABORTED: {e}", flush=True)
+        raise SystemExit(2)
+
     registrar.draw_matches(matches_dir)
     print(f"Saved feature-match visualization to {matches_dir}")
 
@@ -530,8 +769,8 @@ def main():
         warped_img = warp_new_slide(
             img,
             registrar,
-            source_img=os.path.join(args.output_dir, os.path.basename(args.image)),
-            dst_img=os.path.join(args.output_dir, os.path.basename(args.reference)),
+            source_img=image_path,
+            dst_img=reference_path,
         )
         warped_slides.append(warped_img)
         names.append(os.path.basename(args.reference))
@@ -542,8 +781,8 @@ def main():
         warped_img = warp_new_slide(
             img,
             registrar,
-            source_img=os.path.join(args.output_dir, os.path.basename(args.reference)),
-            dst_img=os.path.join(args.output_dir, os.path.basename(args.reference)),
+            source_img=reference_path,
+            dst_img=reference_path,
         )
         warped_slides.append(warped_img)
         names.append(os.path.basename(args.reference))

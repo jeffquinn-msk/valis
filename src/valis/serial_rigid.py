@@ -32,6 +32,17 @@ from . import feature_matcher
 
 logger = logging.getLogger(__name__)
 
+
+class TooFewMatchesError(RuntimeError):
+    """Raised when an initial-pass keypoint match count is below the
+    configured ``min_rigid_matches`` threshold. Continuing past this
+    point typically produces an unusable registration: with too few
+    correspondences, the rematch step fits a degenerate
+    SimilarityTransform whose extreme scale can also blow up the
+    warped-image canvas and OOM the subsequent feature detection.
+    """
+
+
 DENOISE_MSG = "Denoising images"
 FEATURE_MSG = "Detecting features"
 MATCHING_MSG = "Matching images"
@@ -935,12 +946,44 @@ class SerialRigidRegistrar(object):
 
         return detect_img
 
-    def rematch(self, matcher_obj, valis_obj=None, keep_unfiltered=False):
+    def rematch(
+        self,
+        matcher_obj,
+        valis_obj=None,
+        keep_unfiltered=False,
+        min_matches=0,
+    ):
         """
         Reclaculate features using feature detecror in `matcher_obj`, and then match with `matcher_obj`.
         Use existing features to estimate rotation. Apply rotation to moving image, detect features, and match.
 
+        Parameters
+        ----------
+        min_matches : int, optional
+            Minimum initial-pass match count required between any pair
+            of images before this method will proceed. If any pair has
+            fewer matches, a ``TooFewMatchesError`` is raised. The
+            default of 0 preserves legacy behavior. Setting a positive
+            value (e.g. 10-30) avoids the silent failure mode where a
+            handful of spurious matches produces a wildly-scaled
+            SimilarityTransform, which both ruins the registration and
+            can OOM the rematch's feature detector by warping the
+            moving image into a multi-thousand-pixel canvas.
         """
+
+        if min_matches and min_matches > 0:
+            for moving_idx, fixed_idx in self.iter_order:
+                img_obj = self.img_obj_list[moving_idx]
+                prev_img_obj = self.img_obj_list[fixed_idx]
+                match_info = prev_img_obj.match_dict.get(img_obj)
+                n = 0 if match_info is None else len(match_info.matched_kp1_xy)
+                if n < min_matches:
+                    raise TooFewMatchesError(
+                        f"Only {n} initial keypoint matches between "
+                        f"{img_obj.name} and {prev_img_obj.name} "
+                        f"(threshold {min_matches}). Continuing would "
+                        "produce a degenerate rigid transform; aborting."
+                    )
 
         ref_img_obj = self.img_obj_list[self.reference_img_idx]
         ref_img = self.get_fd_detection_img(
@@ -1973,6 +2016,7 @@ def register_images(
     align_to_reference=False,
     qt_emitter=None,
     valis_obj=None,
+    min_rigid_matches=0,
     *args,
     **kwargs,
 ):
@@ -2155,8 +2199,27 @@ def register_images(
         # Images sorted with feature_detector, but need to matched using matcher's feature_detector
         logger.info(msg)
         registrar.rematch(
-            matcher_obj=matcher, valis_obj=valis_obj, keep_unfiltered=False
+            matcher_obj=matcher,
+            valis_obj=valis_obj,
+            keep_unfiltered=False,
+            min_matches=min_rigid_matches,
         )
+    elif min_rigid_matches and min_rigid_matches > 0:
+        # No rematch will happen, but still enforce the minimum-matches
+        # contract so callers get the same loud failure regardless of
+        # which feature detector / matcher combination they configured.
+        for moving_idx, fixed_idx in registrar.iter_order:
+            img_obj = registrar.img_obj_list[moving_idx]
+            prev_img_obj = registrar.img_obj_list[fixed_idx]
+            match_info = prev_img_obj.match_dict.get(img_obj)
+            n = 0 if match_info is None else len(match_info.matched_kp1_xy)
+            if n < min_rigid_matches:
+                raise TooFewMatchesError(
+                    f"Only {n} initial keypoint matches between "
+                    f"{img_obj.name} and {prev_img_obj.name} "
+                    f"(threshold {min_rigid_matches}). Continuing would "
+                    "produce a degenerate rigid transform; aborting."
+                )
 
     # print("\n======== Calculating transformations\n")
     if registrar.size > 2:

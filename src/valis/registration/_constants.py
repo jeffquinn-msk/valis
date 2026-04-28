@@ -95,6 +95,7 @@ DEFAULT_MAX_IMG_DIM = 1024
 DEFAULT_THUMBNAIL_SIZE = 512
 DEFAULT_MAX_NON_RIGID_REG_SIZE = 2048
 DEFAULT_MAX_MICRO_REG_SIZE = 4096
+DEFAULT_MIN_RIGID_MATCHES = 0  # 0 disables the safeguard; opt-in via `min_rigid_matches`
 
 # Tiled non-rigid registration arguments
 TILER_THRESH_GB = 10
@@ -115,6 +116,7 @@ TFORM_SRC_SHAPE_KEY = "transformation_src_shape_rc"
 TFORM_DST_SHAPE_KEY = "transformation_dst_shape_rc"
 TFORM_MAT_KEY = "M"
 CHECK_REFLECT_KEY = "check_for_reflections"
+MIN_RIGID_MATCHES_KEY = "min_rigid_matches"
 
 # Rigid registration kwarg keys #
 NON_RIGID_REG_CLASS_KEY = "non_rigid_reg_class"
