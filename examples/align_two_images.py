@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-from valis import registration
+from valis import registration, feature_matcher, feature_detectors, preprocessing
 import numpy as np
 import pyvips
 
@@ -55,7 +55,58 @@ def get_parser():
         type=str,
         help="Output directory.",
     )
+    parser.add_argument(
+        "--max-processed-image-dim-px",
+        type=int,
+        default=2048,
+        help="Max side length used for feature detection / non-rigid registration. "
+        "Higher = better matches but more memory; 4096 OOMs on a 32GB laptop.",
+    )
+    stain_choices = ("auto", "he-hematoxylin", "inverted-fluorescence")
+    parser.add_argument(
+        "--image-stain",
+        choices=stain_choices,
+        default="auto",
+        help="Preprocessor for --image. 'he-hematoxylin' deconvolves H&E and keeps "
+        "the hematoxylin (nuclei) channel; 'inverted-fluorescence' un-inverts a "
+        "DAPI-style image so nuclei are bright; 'auto' lets valis decide.",
+    )
+    parser.add_argument(
+        "--reference-stain",
+        choices=stain_choices,
+        default="auto",
+        help="Same as --image-stain but for --reference.",
+    )
     return parser
+
+
+class InvertedFluorescence(preprocessing.ImageProcesser):
+    """Reverse the inversion on an 'inverted DAPI' (or similar) greyscale image
+    so that nuclei come out bright — matching the convention of hematoxylin
+    deconvolution output.
+    """
+
+    def create_mask(self):
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        # In an inverted-fluorescence image, tissue is dark on a bright bg.
+        thresh = np.percentile(img, 90)
+        mask = (img < thresh).astype(np.uint8) * 255
+        return mask
+
+    def process_image(self, *args, **kwargs):
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        lo, hi = np.percentile(img, (1, 99))
+        if hi <= lo:
+            hi = lo + 1.0
+        img = np.clip((img - lo) / (hi - lo), 0.0, 1.0)
+        inverted = 1.0 - img
+        return (inverted * 255).astype(np.uint8)
 
 
 def setup_valis_logging():
@@ -425,22 +476,45 @@ def main():
         else:
             os.symlink(os.path.abspath(args.image), img_out_path)
 
+    # Build a per-image processor dict so we can force nuclei-extraction on
+    # both sides — H&E -> hematoxylin channel, inverted DAPI -> un-inverted
+    # greyscale. Both end up "nuclei = bright", which gives the matcher
+    # something common to lock onto across modalities.
+    stain_to_processor = {
+        "he-hematoxylin": [preprocessing.HEDeconvolution, {"stain": "hem"}],
+        "inverted-fluorescence": [InvertedFluorescence, {}],
+    }
+    image_path = os.path.join(args.output_dir, os.path.basename(args.image))
+    reference_path = os.path.join(
+        args.output_dir, os.path.basename(args.reference)
+    )
+    processor_dict = {}
+    if args.image_stain != "auto":
+        processor_dict[image_path] = stain_to_processor[args.image_stain]
+    if args.reference_stain != "auto":
+        processor_dict[reference_path] = stain_to_processor[args.reference_stain]
+
     # Create a Valis object and use it to register the slides in slide_src_dir
     registrar = registration.Valis(
         src_dir=args.output_dir,
         dst_dir=args.output_dir,
         name="registration",
-        img_list=[
-            os.path.join(args.output_dir, os.path.basename(args.image)),
-            os.path.join(args.output_dir, os.path.basename(args.reference)),
-        ],
-        reference_img_f=os.path.join(args.output_dir, os.path.basename(args.reference)),
+        img_list=[image_path, reference_path],
+        reference_img_f=reference_path,
         thumbnail_size=4096,
+        max_processed_image_dim_px=args.max_processed_image_dim_px,
+        max_image_dim_px=args.max_processed_image_dim_px,
         check_for_reflections=False,
         similarity_metric="euclidean",
         align_to_reference=True,
     )
-    registrar.register()
+    registrar.register(
+        processor_dict=processor_dict if processor_dict else None,
+    )
+
+    matches_dir = os.path.join(args.output_dir, "registration", "matches")
+    registrar.draw_matches(matches_dir)
+    print(f"Saved feature-match visualization to {matches_dir}")
 
     if not os.path.exists(os.path.join(args.output_dir, "aligned.ome.tif")):
         warped_slides = []
