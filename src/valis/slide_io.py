@@ -18,7 +18,6 @@ from bs4 import BeautifulSoup
 from statistics import mode
 import time
 import sys
-import re
 import itertools
 import xml.etree.ElementTree as elementTree
 import unicodedata
@@ -33,7 +32,6 @@ from colorama import Fore
 from . import valtils
 from . import slide_tools
 from . import warp_tools
-from . import valtils
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +197,7 @@ def get_ome_obj(x):
                 f"Could not get OME-XML for image {x}, due to the following error: {e}"
             )
         else:
-            logger.warning(
-                f"Could not get OME-XML, due to the following error: {e}"
-            )
+            logger.warning(f"Could not get OME-XML, due to the following error: {e}")
 
     return ome_obj
 
@@ -937,7 +933,7 @@ class VipsSlideReader(SlideReader):
             vips_slide = page
         else:
             pages = [
-                pyvips.Image.new_from_file(self.src_f, page=p-1)
+                pyvips.Image.new_from_file(self.src_f, page=p - 1)
                 for p in range(self.metadata.n_channels)
             ]
 
@@ -2016,10 +2012,7 @@ def get_slide_reader(src_f, series=None):
     can_use_openslide = check_to_use_openslide(src_f)  # Checks openslide is installed
 
     # Give preference to vips/openslide since it will be fastest
-    if (
-        (can_use_vips or can_use_openslide)
-        and not is_flattened_tiff
-    ):
+    if (can_use_vips or can_use_openslide) and not is_flattened_tiff:
         return VipsSlideReader
 
     if is_flattened_tiff:
@@ -2489,7 +2482,8 @@ def update_xml_for_new_img(
     series = slide_meta.series
 
     if isinstance(img, pyvips.Image):
-        ome_dtype = vips2ome_dtype(img.format)
+        np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[img.format]
+        ome_dtype = slide_tools.NUMPY_FORMAT_OME_DTYPE[str(np_dtype().dtype)]
     else:
         ome_dtype = slide_tools.NUMPY_FORMAT_OME_DTYPE[str(img.dtype)]
 
@@ -2757,7 +2751,8 @@ def save_ome_tiff(
     og_interpretation = img.interpretation
     is_rgb = og_interpretation in VIPS_RGB_FORMATS
 
-    ome_dtype = vips2ome_dtype(img.format)
+    np_dtype = slide_tools.VIPS_FORMAT_NUMPY_DTYPE[img.format]
+    ome_dtype = slide_tools.NUMPY_FORMAT_OME_DTYPE[str(np_dtype().dtype)]
     if ome_xml is None:
         # Create minimal ome-xml
         ome_xml_obj = create_ome_xml(
@@ -2833,7 +2828,9 @@ def save_ome_tiff(
         msg = "Unable to create progress bar for pyvips. May need to update libvips to >= 8.11"
         logger.warning(msg)
 
-    logger.info(f"saving {dst_f} ({img.width} x {image_height} and {image_bands} channels)")
+    logger.info(
+        f"saving {dst_f} ({img.width} x {image_height} and {image_bands} channels)"
+    )
 
     # Write image #
     tile_wh = tile_wh - (tile_wh % 16)  # Tile shape must be multiple of 16

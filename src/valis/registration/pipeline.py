@@ -43,25 +43,68 @@ from .. import viz
 from .. import warp_tools
 
 from ._constants import (
-    CONVERTED_IMG_DIR, PROCESSED_IMG_DIR, RIGID_REG_IMG_DIR,
-    NON_RIGID_REG_IMG_DIR, DEFORMATION_FIELD_IMG_DIR, OVERLAP_IMG_DIR,
-    REG_RESULTS_DATA_DIR, MICRO_REG_DIR, DISPLACEMENT_DIRS, MASK_DIR,
-    DEFAULT_BRIGHTFIELD_CLASS, DEFAULT_BRIGHTFIELD_PROCESSING_ARGS,
-    DEFAULT_FLOURESCENCE_CLASS, DEFAULT_FLOURESCENCE_PROCESSING_ARGS,
-    DEFAULT_NORM_METHOD, DEFAULT_FD, DEFAULT_TRANSFORM_CLASS,
-    DEFAULT_MATCHER, DEFAULT_MATCHER_FOR_SORTING, DEFAULT_SIMILARITY_METRIC,
-    DEFAULT_AFFINE_OPTIMIZER_CLASS, DEFAULT_MAX_PROCESSED_IMG_SIZE,
-    DEFAULT_MAX_IMG_DIM, DEFAULT_THUMBNAIL_SIZE, DEFAULT_MAX_NON_RIGID_REG_SIZE,
-    DEFAULT_MAX_MICRO_REG_SIZE, TILER_THRESH_GB, DEFAULT_NR_TILE_WH,
-    AFFINE_OPTIMIZER_KEY, TRANSFORMER_KEY, SIM_METRIC_KEY, FD_KEY,
-    MATCHER_KEY, MATCHER_FOR_SORTING_KEY, NAME_KEY, IMAGES_ORDERD_KEY,
-    REF_IMG_KEY, QT_EMMITER_KEY, TFORM_SRC_SHAPE_KEY, TFORM_DST_SHAPE_KEY,
-    TFORM_MAT_KEY, CHECK_REFLECT_KEY, NON_RIGID_REG_CLASS_KEY,
-    NON_RIGID_REG_PARAMS_KEY, NON_RIGID_USE_XY_KEY, NON_RIGID_COMPOSE_KEY,
-    DEFAULT_NON_RIGID_CLASS, DEFAULT_NON_RIGID_KWARGS, DEFAULT_COMPRESSION,
-    CROP_OVERLAP, CROP_REF, CROP_NONE, CropMode,
-    WARP_ANNO_MSG, CONVERT_MSG, DENOISE_MSG, PROCESS_IMG_MSG, NORM_IMG_MSG,
-    TRANSFORM_MSG, PREP_NON_RIGID_MSG, MEASURE_MSG, SAVING_IMG_MSG,
+    CONVERTED_IMG_DIR,
+    PROCESSED_IMG_DIR,
+    RIGID_REG_IMG_DIR,
+    NON_RIGID_REG_IMG_DIR,
+    DEFORMATION_FIELD_IMG_DIR,
+    OVERLAP_IMG_DIR,
+    REG_RESULTS_DATA_DIR,
+    MICRO_REG_DIR,
+    DISPLACEMENT_DIRS,
+    MASK_DIR,
+    DEFAULT_BRIGHTFIELD_CLASS,
+    DEFAULT_BRIGHTFIELD_PROCESSING_ARGS,
+    DEFAULT_FLOURESCENCE_CLASS,
+    DEFAULT_FLOURESCENCE_PROCESSING_ARGS,
+    DEFAULT_NORM_METHOD,
+    DEFAULT_FD,
+    DEFAULT_TRANSFORM_CLASS,
+    DEFAULT_MATCHER,
+    DEFAULT_MATCHER_FOR_SORTING,
+    DEFAULT_SIMILARITY_METRIC,
+    DEFAULT_AFFINE_OPTIMIZER_CLASS,
+    DEFAULT_MAX_PROCESSED_IMG_SIZE,
+    DEFAULT_MAX_IMG_DIM,
+    DEFAULT_THUMBNAIL_SIZE,
+    DEFAULT_MAX_NON_RIGID_REG_SIZE,
+    DEFAULT_MAX_MICRO_REG_SIZE,
+    TILER_THRESH_GB,
+    DEFAULT_NR_TILE_WH,
+    AFFINE_OPTIMIZER_KEY,
+    TRANSFORMER_KEY,
+    SIM_METRIC_KEY,
+    FD_KEY,
+    MATCHER_KEY,
+    MATCHER_FOR_SORTING_KEY,
+    NAME_KEY,
+    IMAGES_ORDERD_KEY,
+    REF_IMG_KEY,
+    QT_EMMITER_KEY,
+    TFORM_SRC_SHAPE_KEY,
+    TFORM_DST_SHAPE_KEY,
+    TFORM_MAT_KEY,
+    CHECK_REFLECT_KEY,
+    NON_RIGID_REG_CLASS_KEY,
+    NON_RIGID_REG_PARAMS_KEY,
+    NON_RIGID_USE_XY_KEY,
+    NON_RIGID_COMPOSE_KEY,
+    DEFAULT_NON_RIGID_CLASS,
+    DEFAULT_NON_RIGID_KWARGS,
+    DEFAULT_COMPRESSION,
+    CROP_OVERLAP,
+    CROP_REF,
+    CROP_NONE,
+    CropMode,
+    WARP_ANNO_MSG,
+    CONVERT_MSG,
+    DENOISE_MSG,
+    PROCESS_IMG_MSG,
+    NORM_IMG_MSG,
+    TRANSFORM_MSG,
+    PREP_NON_RIGID_MSG,
+    MEASURE_MSG,
+    SAVING_IMG_MSG,
 )
 from .slide import Slide
 from .state import DisplacementField, RegistrationConfig, load_registrar
@@ -656,7 +699,9 @@ class Valis(object):
             if max_processed_image_dim_px == DEFAULT_MAX_PROCESSED_IMG_SIZE:
                 max_processed_image_dim_px = config.max_processed_image_dim_px
             if max_non_rigid_registration_dim_px == DEFAULT_MAX_NON_RIGID_REG_SIZE:
-                max_non_rigid_registration_dim_px = config.max_non_rigid_registration_dim_px
+                max_non_rigid_registration_dim_px = (
+                    config.max_non_rigid_registration_dim_px
+                )
             if crop is None and config.crop is not None:
                 crop = config.crop
             if create_masks:
@@ -1202,9 +1247,7 @@ class Valis(object):
             slide_name = valtils.get_name(slide_f)
             if slide_name not in named_reader_dict:
                 if default_reader is None:
-                    slide_reader_cls = slide_io.get_slide_reader(
-                            slide_f, series=series
-                        )
+                    slide_reader_cls = slide_io.get_slide_reader(slide_f, series=series)
                 else:
                     slide_reader_cls = default_reader
 
@@ -1520,7 +1563,9 @@ class Valis(object):
         mask_s = (
             warp_tools.get_shape(mask)[0:2] / warp_tools.get_shape(slide_obj.image)[0:2]
         )
-        assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), "mask does not appear to based on scaled copy of Slide's image"
+        assert np.isclose(
+            mask_s[0], mask_s[1], atol=10**-2
+        ), "mask does not appear to based on scaled copy of Slide's image"
         if np.any(mask.shape[0:2] != slide_obj.image.shape[0:2]):
             mask = warp_tools.resize_img(mask, slide_obj.image.shape[0:2])
 
@@ -1635,7 +1680,9 @@ class Valis(object):
                 if self.create_masks:
                     mask = processor.create_mask()
                     mask_s = warp_tools.get_shape(mask)[0:2] / processed_shape_rc
-                    assert np.isclose(mask_s[0], mask_s[1], atol=10**-2), "mask does not appear to based on scaled copy of Slide's image"
+                    assert np.isclose(
+                        mask_s[0], mask_s[1], atol=10**-2
+                    ), "mask does not appear to based on scaled copy of Slide's image"
                     if np.any(mask.shape[0:2] != processed_shape_rc):
                         mask = warp_tools.resize_img(mask, processed_shape_rc)
 
@@ -2226,7 +2273,9 @@ class Valis(object):
         ):
             img_obj = rigid_registrar.img_obj_list[moving_idx]
             if img_obj.name in scaled_M_dict:
-                logger.info(f"Skipping {img_obj.name}, which has affine transform provided.")
+                logger.info(
+                    f"Skipping {img_obj.name}, which has affine transform provided."
+                )
                 continue
 
             prev_img_obj = rigid_registrar.img_obj_list[fixed_idx]
@@ -3254,6 +3303,11 @@ class Valis(object):
             combined_mask = cv2.bitwise_or(r_nr_intersection, temp_missing_mask)
             small_missing_mask = cv2.bitwise_xor(
                 slide_obj.non_rigid_reg_mask, combined_mask
+            )
+            missing_mask = warp_tools.resize_img(
+                small_missing_mask,
+                slide_obj.bk_dxdy[0].shape,
+                interp_method="nearest",
             )
 
             inpaint_mask = cv2.bitwise_or(inv_tears, missing_mask)
@@ -4731,7 +4785,9 @@ class Valis(object):
                     warped_slide = keep_channels[0]
                 else:
                     warped_slide = keep_channels[0].bandjoin(keep_channels[1:])
-            logger.info(f"merging {', '.join(slide_channel_names)} from {slide_obj.name}")
+            logger.info(
+                f"merging {', '.join(slide_channel_names)} from {slide_obj.name}"
+            )
 
             if merged_slide is None:
                 merged_slide = warped_slide

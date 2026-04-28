@@ -31,7 +31,6 @@ from colorama import Fore
 from itertools import chain
 import cv2
 import matplotlib.pyplot as plt
-from colorama import Fore
 
 from .. import feature_matcher
 from .. import serial_rigid
@@ -129,6 +128,7 @@ DEFAULT_NON_RIGID_KWARGS = {}
 
 # Cropping options
 import sys as _sys
+
 if _sys.version_info >= (3, 11):
     from enum import StrEnum as _StrEnum
 else:
@@ -173,5 +173,3 @@ SAVING_IMG_MSG = "Saving images"
 PROCESS_IMG_MSG, NORM_IMG_MSG, DENOISE_MSG = valtils.pad_strings(
     [PROCESS_IMG_MSG, NORM_IMG_MSG, DENOISE_MSG]
 )
-
-

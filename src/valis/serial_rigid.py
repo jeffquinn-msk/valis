@@ -29,7 +29,6 @@ from . import slide_tools
 from .feature_detectors import VggFD
 from .feature_matcher import Matcher, convert_distance_to_similarity, GMS_NAME
 from . import feature_matcher
-from . import valtils
 
 logger = logging.getLogger(__name__)
 
