@@ -67,6 +67,8 @@ def get_parser():
     stain_choices = (
         "auto",
         "he-hematoxylin",
+        "he-hematoxylin-raw",
+        "he-hematoxylin-sparse",
         "inverted-fluorescence",
         "od",
         "colorful-standardizer",
@@ -123,10 +125,17 @@ class HematoxylinExtractor(preprocessing.ImageProcesser):
     then deconvolve using ``skimage.color.rgb2hed`` with the fixed
     Ruifrok-Johnston stain matrix and keep only the H channel.
 
-    This is more robust than per-image Macenko deconvolution alone
-    (``preprocessing.HEDeconvolution``) when the stain is faded,
-    eosin-heavy, or otherwise atypical, because the unmix vectors don't
-    depend on the image content.
+    Macenko's ``normalize_he`` picks H vs E by an angle heuristic on the
+    candidate stain vectors' red component. On eosin-dominant or
+    hematoxylin-faded slides that ordering can flip, sending eosin into
+    the "hematoxylin" row — yielding an output where stroma lights up
+    brighter than nuclei. We detect that here by checking which row
+    correlates with bluish pixels in the original RGB (true hematoxylin)
+    and swap if needed.
+
+    Pass ``use_macenko=False`` to skip normalization entirely and just
+    run ``rgb2hed`` on raw RGB — useful as a fallback when Macenko
+    misbehaves on an atypical slide.
     """
 
     def create_mask(self):
@@ -135,7 +144,24 @@ class HematoxylinExtractor(preprocessing.ImageProcesser):
         _, tissue_mask = create_tissue_mask_from_rgb(self.image)
         return tissue_mask
 
-    def process_image(self, *args, **kwargs):
+    def process_image(
+        self,
+        *args,
+        use_macenko: bool = True,
+        sparse: bool = False,
+        sparse_pct: float = 90.0,
+        sparse_blur_sigma: float = 1.5,
+        **kwargs,
+    ):
+        """Extract hematoxylin channel.
+
+        ``sparse=True`` thresholds the H channel at the ``sparse_pct``
+        percentile and zeros everything below — yielding a punctate
+        "nuclei dots" image that resembles a fluorescence reference.
+        Use this on eosin-dominant / hematoxylin-faded slides where the
+        smooth percentile stretch produces stromal texture instead of
+        isolated nuclei.
+        """
         from skimage.color import rgb2hed
 
         img = self.image
@@ -145,34 +171,96 @@ class HematoxylinExtractor(preprocessing.ImageProcesser):
         if rgb.dtype != np.uint8:
             rgb = np.clip(rgb, 0, 255).astype(np.uint8)
 
-        # Macenko-style normalization to a standard H&E reference. Brings
-        # faded slides up to a consistent stain intensity before unmixing.
-        try:
-            normalized = preprocessing.normalize_he(rgb, Io=240, alpha=1, beta=0.15)
-            # Reproject normalized stain concentrations back to RGB using
-            # the standard Ruifrok-Johnston H/E reference vectors so that
-            # rgb2hed below sees a "canonical" H&E image.
-            ref_stain = np.array(
-                [[0.5626, 0.7201, 0.4062], [0.2159, 0.8012, 0.5581]]
-            )
-            recon_od = ref_stain.T @ normalized
-            recon = np.clip(
-                240.0 * np.exp(-recon_od), 0, 255
-            ).T.reshape(rgb.shape)
-            rgb_for_unmix = recon.astype(np.uint8)
-        except Exception:
-            # Macenko can fail on degenerate (very faded / very dark)
-            # tissue. Fall back to raw RGB rather than aborting.
-            rgb_for_unmix = rgb
+        rgb_for_unmix = rgb
+        if use_macenko:
+            # Macenko-style normalization to a standard H&E reference.
+            # Brings faded slides up to consistent stain intensity.
+            try:
+                normalized = preprocessing.normalize_he(
+                    rgb, Io=240, alpha=1, beta=0.15
+                )
+                normalized = _fix_he_swap(normalized, rgb)
+                # Reproject normalized concentrations through the
+                # canonical Ruifrok-Johnston H/E vectors so rgb2hed below
+                # sees a canonical H&E image.
+                ref_stain = np.array(
+                    [[0.5626, 0.7201, 0.4062], [0.2159, 0.8012, 0.5581]]
+                )
+                recon_od = ref_stain.T @ normalized
+                recon = np.clip(
+                    240.0 * np.exp(-recon_od), 0, 255
+                ).T.reshape(rgb.shape)
+                rgb_for_unmix = recon.astype(np.uint8)
+            except Exception:
+                # Macenko can fail on degenerate (very faded / very dark)
+                # tissue. Fall back to raw RGB rather than aborting.
+                rgb_for_unmix = rgb
 
         hed = rgb2hed(rgb_for_unmix)
         h = hed[..., 0]  # hematoxylin channel (positive where stain is dense)
+
+        if sparse:
+            # Restrict the percentile to tissue pixels so a large dark
+            # background doesn't pull the threshold down. Then zero
+            # everything below the cutoff and stretch the survivors.
+            from valis.preprocessing import create_tissue_mask_from_rgb
+
+            try:
+                _, tissue_mask = create_tissue_mask_from_rgb(rgb)
+                tissue = tissue_mask > 0
+            except Exception:
+                tissue = np.ones(h.shape, dtype=bool)
+            if tissue.sum() < 1000:
+                tissue = np.ones(h.shape, dtype=bool)
+            cutoff = np.percentile(h[tissue], sparse_pct)
+            top = np.percentile(h[tissue], 99.9)
+            denom = max(top - cutoff, 1e-6)
+            out = np.clip((h - cutoff) / denom, 0.0, 1.0)
+            out[~tissue] = 0
+            if sparse_blur_sigma > 0:
+                # Smooth so each surviving spot becomes a small Gaussian
+                # blob with a real local maximum — gives keypoint matchers
+                # something with scale to lock onto.
+                from scipy.ndimage import gaussian_filter
+
+                out = gaussian_filter(out.astype(np.float32), sparse_blur_sigma)
+                m = out.max()
+                if m > 0:
+                    out = out / m
+            return (out * 255).astype(np.uint8)
 
         lo, hi = np.percentile(h, (1, 99))
         if hi <= lo:
             hi = lo + 1e-6
         h = np.clip((h - lo) / (hi - lo), 0.0, 1.0)
         return (h * 255).astype(np.uint8)
+
+
+def _fix_he_swap(normalized: np.ndarray, rgb: np.ndarray) -> np.ndarray:
+    """Detect and correct H/E row swaps from Macenko's angle heuristic.
+
+    Hematoxylin stains pixels blue-purple, eosin pink-red. So the true
+    hematoxylin concentration row should correlate positively with
+    (B - R) across the image, while eosin should anti-correlate. If the
+    rows are swapped, swap them back.
+    """
+    flat = rgb.reshape(-1, 3).astype(np.float32)
+    blueness = flat[:, 2] - flat[:, 0]  # B - R
+    # Mask to tissue pixels (anything sufficiently darker than 240 bg)
+    od_proxy = 255.0 - flat.mean(axis=1)
+    tissue = od_proxy > 15.0
+    if tissue.sum() < 1000:
+        return normalized
+    b = blueness[tissue]
+    if b.std() < 1e-3:
+        return normalized
+    c0 = np.corrcoef(normalized[0, tissue], b)[0, 1]
+    c1 = np.corrcoef(normalized[1, tissue], b)[0, 1]
+    if np.isnan(c0) or np.isnan(c1):
+        return normalized
+    if c1 > c0:
+        return normalized[::-1].copy()
+    return normalized
 
 
 class InvertedFluorescence(preprocessing.ImageProcesser):
@@ -636,6 +724,8 @@ def main():
     # nuclei rather than raw luminance of two visually different stains.
     stain_to_processor = {
         "he-hematoxylin": [HematoxylinExtractor, {}],
+        "he-hematoxylin-raw": [HematoxylinExtractor, {"use_macenko": False}],
+        "he-hematoxylin-sparse": [HematoxylinExtractor, {"sparse": True}],
         "inverted-fluorescence": [InvertedFluorescence, {}],
         "od": [preprocessing.OD, {}],
         "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
