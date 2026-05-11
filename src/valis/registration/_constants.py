@@ -95,7 +95,9 @@ DEFAULT_MAX_IMG_DIM = 1024
 DEFAULT_THUMBNAIL_SIZE = 512
 DEFAULT_MAX_NON_RIGID_REG_SIZE = 2048
 DEFAULT_MAX_MICRO_REG_SIZE = 4096
-DEFAULT_MIN_RIGID_MATCHES = 0  # 0 disables the safeguard; opt-in via `min_rigid_matches`
+DEFAULT_MIN_RIGID_MATCHES = (
+    0  # 0 disables the safeguard; opt-in via `min_rigid_matches`
+)
 
 # Tiled non-rigid registration arguments
 TILER_THRESH_GB = 10

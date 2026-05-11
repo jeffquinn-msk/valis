@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Side-by-side thumbnail of one TMA's morphology crop vs. its H&E crop."""
+
 import argparse
 import json
 import os
@@ -17,7 +18,9 @@ def crop_thumb(img, box, thumb_h):
         arr = arr.squeeze()
         lo = np.percentile(arr[arr > 0], 1) if arr.max() > 0 else 0
         hi = np.percentile(arr[arr > 0], 99.9) if arr.max() > 0 else 255
-        arr = np.clip((arr.astype(np.float32) - lo) / max(hi - lo, 1) * 255, 0, 255).astype(np.uint8)
+        arr = np.clip(
+            (arr.astype(np.float32) - lo) / max(hi - lo, 1) * 255, 0, 255
+        ).astype(np.uint8)
         arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
     else:
         arr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
@@ -52,10 +55,26 @@ def main():
     if e.shape[0] < max_h:
         e = np.pad(e, ((0, max_h - e.shape[0]), (0, 0), (0, 0)))
 
-    cv2.putText(m, f"TMA {args.tma_id} morphology", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
-    cv2.putText(e, f"TMA {args.tma_id} H&E", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+    cv2.putText(
+        m,
+        f"TMA {args.tma_id} morphology",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (0, 0, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        e,
+        f"TMA {args.tma_id} H&E",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (0, 0, 255),
+        2,
+        cv2.LINE_AA,
+    )
 
     div = np.full((max_h, 4, 3), 255, dtype=np.uint8)
     panel = np.hstack([m, div, e])

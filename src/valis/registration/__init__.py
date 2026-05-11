@@ -84,7 +84,11 @@ from ._constants import (
 )
 
 # Re-export shared types
-from .state import CropMode, DisplacementField, RegistrationConfig, load_registrar  # noqa: F811
+from .state import (
+    DisplacementField,
+    RegistrationConfig,
+    load_registrar,
+)
 
 # Re-export the two main classes
 from .slide import Slide

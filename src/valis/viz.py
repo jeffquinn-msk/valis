@@ -1297,9 +1297,9 @@ def color_displacement_tri_grid(
             logger.error(
                 f"mismatch in shape between `img` {img.shape[0:2]} and displacement fields {trimesh_img.shape[0:2]}"
             )
-        assert img.shape[0:2] == trimesh_img.shape[0:2], (
-            f"mismatch in shape between `img` {img.shape[0:2]} and displacement fields {trimesh_img.shape[0:2]}"
-        )
+        assert (
+            img.shape[0:2] == trimesh_img.shape[0:2]
+        ), f"mismatch in shape between `img` {img.shape[0:2]} and displacement fields {trimesh_img.shape[0:2]}"
         mesh_pos = trimesh_img > 0
         out_img = img.copy()
         out_img[mesh_pos] = colored_displacement[mesh_pos]

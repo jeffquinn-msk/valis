@@ -180,9 +180,7 @@ class HematoxylinExtractor(preprocessing.ImageProcesser):
             # Macenko-style normalization to a standard H&E reference.
             # Brings faded slides up to consistent stain intensity.
             try:
-                normalized = preprocessing.normalize_he(
-                    rgb, Io=240, alpha=1, beta=0.15
-                )
+                normalized = preprocessing.normalize_he(rgb, Io=240, alpha=1, beta=0.15)
                 normalized = _fix_he_swap(normalized, rgb)
                 # Reproject normalized concentrations through the
                 # canonical Ruifrok-Johnston H/E vectors so rgb2hed below
@@ -191,9 +189,7 @@ class HematoxylinExtractor(preprocessing.ImageProcesser):
                     [[0.5626, 0.7201, 0.4062], [0.2159, 0.8012, 0.5581]]
                 )
                 recon_od = ref_stain.T @ normalized
-                recon = np.clip(
-                    240.0 * np.exp(-recon_od), 0, 255
-                ).T.reshape(rgb.shape)
+                recon = np.clip(240.0 * np.exp(-recon_od), 0, 255).T.reshape(rgb.shape)
                 rgb_for_unmix = recon.astype(np.uint8)
             except Exception:
                 # Macenko can fail on degenerate (very faded / very dark)
@@ -356,9 +352,7 @@ def pyvips_to_thumbnail_rgb_array(img: pyvips.Image, size: int) -> "np.ndarray":
     elif small.bands > 3:
         small = small[0].bandjoin([small[1], small[2]])
     mem = small.write_to_memory()
-    return np.frombuffer(mem, dtype=np.uint8).reshape(
-        small.height, small.width, 3
-    )
+    return np.frombuffer(mem, dtype=np.uint8).reshape(small.height, small.width, 3)
 
 
 def run_processor_on_thumbnail(
@@ -420,9 +414,7 @@ def check_and_correct_orientation(
         ref_thumb = pyvips_to_thumbnail_array(reference_img, effective_size)
     if moving_processor is not None:
         rgb = pyvips_to_thumbnail_rgb_array(moving_img, effective_size)
-        mov_thumb = run_processor_on_thumbnail(
-            moving_processor, rgb, moving_src_f
-        )
+        mov_thumb = run_processor_on_thumbnail(moving_processor, rgb, moving_src_f)
     else:
         mov_thumb = pyvips_to_thumbnail_array(moving_img, effective_size)
 
@@ -705,7 +697,6 @@ def main():
         print(f"  {k:<24}: {v}", flush=True)
     print("===================================", flush=True)
 
-
     img_out_path = os.path.join(args.output_dir, os.path.basename(args.image))
     ref_out_path = os.path.join(args.output_dir, os.path.basename(args.reference))
 
@@ -758,15 +749,15 @@ def main():
         args.reference_stain = _resolve_auto_stain(args.reference)
         print(f"[auto-stain] --reference -> {args.reference_stain}")
 
-    reference_path = os.path.join(
-        args.output_dir, os.path.basename(args.reference)
-    )
+    reference_path = os.path.join(args.output_dir, os.path.basename(args.reference))
 
     # Cheap pre-alignment orientation check. If the moving image is rotated or
     # mirrored relative to the reference, bake the correction into the copy
     # that gets handed to Valis so registration only deals with residuals.
     if args.no_script_orientation:
-        print("[orientation] script orientation check disabled (--no-script-orientation)")
+        print(
+            "[orientation] script orientation check disabled (--no-script-orientation)"
+        )
         orient_match = orientation_check.OrientationMatch(
             name="identity", k=0, mirror=False, score=0.0, scores={}
         )
@@ -849,6 +840,7 @@ def main():
         # post-rigid attributes), so build the viz from match_dict directly.
         try:
             from valis import viz as _viz, warp_tools as _wt
+
             os.makedirs(matches_dir, exist_ok=True)
             srr = registrar.rigid_registrar
             for moving_idx, fixed_idx in srr.iter_order:

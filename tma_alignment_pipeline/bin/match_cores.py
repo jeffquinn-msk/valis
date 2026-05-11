@@ -4,6 +4,7 @@ Detect tissue core centroids in the H&E whole-slide image and match them
 by grid rank to the morphology TMA centroids from the geoparquet, then
 emit an hne_tma_boxes.json sized to each core's detected circle radius.
 """
+
 import argparse
 import json
 import os
@@ -19,7 +20,7 @@ def gap_grid_sort(pts, n_rows):
     ids = [item[0] for item in sorted_items]
     y_vals = np.array([item[1][1] for item in sorted_items])
     gaps = np.diff(y_vals)
-    split_positions = sorted(np.argsort(gaps)[::-1][:n_rows - 1] + 1)
+    split_positions = sorted(np.argsort(gaps)[::-1][: n_rows - 1] + 1)
     rows, prev = [], 0
     for pos in split_positions:
         rows.append(ids[prev:pos])
@@ -37,8 +38,12 @@ def main():
     p.add_argument("--he-image", required=True)
     p.add_argument("--morphology-boxes", required=True)
     p.add_argument("--um-per-px", type=float, default=0.2125)
-    p.add_argument("--n-rows", type=int, default=10,
-                   help="number of TMA rows expected on the slide")
+    p.add_argument(
+        "--n-rows",
+        type=int,
+        default=10,
+        help="number of TMA rows expected on the slide",
+    )
     p.add_argument("--target-thumb-height", type=int, default=3000)
     p.add_argument("--pad", type=int, default=150)
     p.add_argument("--min-area", type=int, default=1500)

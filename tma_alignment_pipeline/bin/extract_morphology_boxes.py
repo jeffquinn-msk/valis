@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Extract morphology TMA bounding boxes from the geoparquet file."""
+
 import argparse
 import json
 import geopandas as gpd
@@ -9,8 +10,11 @@ import pyvips
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--parquet", required=True)
-    p.add_argument("--morphology", required=True,
-                   help="morphology OME-TIFF; width/height read from its header")
+    p.add_argument(
+        "--morphology",
+        required=True,
+        help="morphology OME-TIFF; width/height read from its header",
+    )
     p.add_argument("--um-per-px", type=float, default=0.2125)
     p.add_argument("--pad", type=int, default=200)
     p.add_argument("--out", required=True)
@@ -34,8 +38,12 @@ def main():
         x1 = min(img_w, x1)
         y1 = min(img_h, y1)
         boxes[tma_id] = {
-            "x": x, "y": y, "w": x1 - x, "h": y1 - y,
-            "x_orig": x_orig, "y_orig": y_orig,
+            "x": x,
+            "y": y,
+            "w": x1 - x,
+            "h": y1 - y,
+            "x_orig": x_orig,
+            "y_orig": y_orig,
         }
 
     with open(args.out, "w") as f:

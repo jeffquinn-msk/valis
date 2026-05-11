@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Crop one TMA core out of a whole-slide image given a bbox JSON entry."""
+
 import argparse
 import json
 import pyvips

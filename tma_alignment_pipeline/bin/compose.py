@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Compose aligned TMA crops back onto a blank morphology-sized canvas."""
+
 import argparse
 import glob
 import json
@@ -10,11 +11,17 @@ import pyvips
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--morphology", required=True,
-                   help="reference morphology OME-TIFF; canvas size taken from its header")
+    p.add_argument(
+        "--morphology",
+        required=True,
+        help="reference morphology OME-TIFF; canvas size taken from its header",
+    )
     p.add_argument("--morphology-boxes", required=True)
-    p.add_argument("--aligned-dir", required=True,
-                   help="dir containing aligned_tma_<id>.ome.tif files")
+    p.add_argument(
+        "--aligned-dir",
+        required=True,
+        help="dir containing aligned_tma_<id>.ome.tif files",
+    )
     p.add_argument("--out", required=True)
     args = p.parse_args()
 
@@ -55,8 +62,12 @@ def main():
 
     canvas.tiffsave(
         args.out,
-        bigtiff=True, tile=True, pyramid=True,
-        tile_width=256, tile_height=256, compression="lzw",
+        bigtiff=True,
+        tile=True,
+        pyramid=True,
+        tile_width=256,
+        tile_height=256,
+        compression="lzw",
     )
     print(f"Wrote {args.out}")
 

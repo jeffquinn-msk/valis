@@ -49,7 +49,9 @@ def main(data_dir: str, registered_dir: str, points_args: list) -> None:
         slide_name, csv_path = points_args
         slide_obj = registrar.get_slide(slide_name)
         if slide_obj is None:
-            print(f"Could not find slide '{slide_name}' in registrar. Available slides:")
+            print(
+                f"Could not find slide '{slide_name}' in registrar. Available slides:"
+            )
             for name in registrar.slide_dict:
                 print(f"  {name}")
             return
@@ -58,16 +60,26 @@ def main(data_dir: str, registered_dir: str, points_args: list) -> None:
         xy = pts_df[["x", "y"]].values.astype(float)
         warped_xy = slide_obj.warp_xy(xy)
         out_f = str(pathlib.Path(csv_path).with_suffix("")) + "_warped.csv"
-        pd.DataFrame(warped_xy, columns=["x_warped", "y_warped"]).to_csv(out_f, index=False)
+        pd.DataFrame(warped_xy, columns=["x_warped", "y_warped"]).to_csv(
+            out_f, index=False
+        )
         print(f"Warped points saved to: {out_f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resume VALIS from saved state")
-    parser.add_argument("--data", required=True, help="Path to the registrar's data/ directory")
-    parser.add_argument("--out", default=None, help="Where to save warped slides (default: data/../registered)")
     parser.add_argument(
-        "--points", nargs=2, metavar=("SLIDE_NAME", "CSV"),
+        "--data", required=True, help="Path to the registrar's data/ directory"
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Where to save warped slides (default: data/../registered)",
+    )
+    parser.add_argument(
+        "--points",
+        nargs=2,
+        metavar=("SLIDE_NAME", "CSV"),
         help="Warp (x,y) points from CSV for the given slide name",
     )
     args = parser.parse_args()

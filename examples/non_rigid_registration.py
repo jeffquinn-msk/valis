@@ -65,10 +65,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Non-rigid VALIS registration")
     parser.add_argument("--src", required=True)
     parser.add_argument("--dst", required=True)
-    parser.add_argument("--no-non-rigid", action="store_true",
-                        help="Disable non-rigid registration (rigid only)")
-    parser.add_argument("--compose", action="store_true",
-                        help="Compose non-rigid deformation fields serially")
+    parser.add_argument(
+        "--no-non-rigid",
+        action="store_true",
+        help="Disable non-rigid registration (rigid only)",
+    )
+    parser.add_argument(
+        "--compose",
+        action="store_true",
+        help="Compose non-rigid deformation fields serially",
+    )
     args = parser.parse_args()
 
     main(args.src, args.dst, not args.no_non_rigid, args.compose)

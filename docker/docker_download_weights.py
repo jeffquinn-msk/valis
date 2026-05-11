@@ -7,7 +7,6 @@ import torch
 import kornia
 from valis import feature_detectors, feature_matcher  # , non_rigid_registrars
 
-
 print("Downloading DiskFD weights")
 disk_fd = feature_detectors.DiskFD()
 print("Downloading DeDoDeFD weights")

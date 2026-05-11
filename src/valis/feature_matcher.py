@@ -15,6 +15,7 @@ try:
     import torch
     import kornia
     from .superglue_models import matching, superglue, superpoint
+
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
@@ -1093,8 +1094,7 @@ class Matcher(object):
 
         else:
             logger.warning(
-                f"Don't know {self.match_filter_method}. "
-                "Defaulting to RANSAC"
+                f"Don't know {self.match_filter_method}. " "Defaulting to RANSAC"
             )
 
             self.match_filter_method = DEFAULT_RANSAC_NAME

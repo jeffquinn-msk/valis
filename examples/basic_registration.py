@@ -26,7 +26,11 @@ def main(src_dir: str, dst_dir: str) -> None:
     rigid_registrar, non_rigid_registrar, error_df = registrar.register()
 
     print("\nRegistration summary:")
-    print(error_df[["from", "to", "mean_original_D", "mean_rigid_D", "mean_non_rigid_D"]].to_string(index=False))
+    print(
+        error_df[
+            ["from", "to", "mean_original_D", "mean_rigid_D", "mean_non_rigid_D"]
+        ].to_string(index=False)
+    )
 
     registered_dir = str(pathlib.Path(dst_dir) / "registered")
     registrar.warp_and_save_slides(registered_dir)
@@ -35,8 +39,12 @@ def main(src_dir: str, dst_dir: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Basic VALIS registration")
-    parser.add_argument("--src", required=True, help="Directory containing source slides")
-    parser.add_argument("--dst", required=True, help="Directory for registration results")
+    parser.add_argument(
+        "--src", required=True, help="Directory containing source slides"
+    )
+    parser.add_argument(
+        "--dst", required=True, help="Directory for registration results"
+    )
     args = parser.parse_args()
 
     main(args.src, args.dst)
