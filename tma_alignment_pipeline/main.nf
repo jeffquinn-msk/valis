@@ -24,7 +24,6 @@ params.min_area        = 1500
 params.verify_thumb_height = 400
 
 params.valis_python    = "/data1/tanseyw/quinnj2/conda_environments/valis/bin/python"
-params.align_script    = "/home/quinnj2/valis/examples/align_two_images.py"
 params.max_processed_dim = 1024
 params.reference_stain = "inverted-fluorescence"
 params.image_stain     = "he-hematoxylin-sparse"
@@ -142,7 +141,7 @@ process CROP_AND_ALIGN {
         --out he_tma_${tma_id}.tif
 
     mkdir -p aligned_${tma_id}
-    ${params.valis_python} ${params.align_script} \\
+    ${params.valis_python} \$(which align_two_images.py) \\
         --reference morph_tma_${tma_id}.tif \\
         --image     he_tma_${tma_id}.tif \\
         --output-dir aligned_${tma_id} \\

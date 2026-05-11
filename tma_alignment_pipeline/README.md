@@ -109,8 +109,7 @@ on 30+ alignments.
 | `--thumb_height`       | `3000`                             | Thumbnail height (px) used for H&E core detection.                       |
 | `--min_area`           | `1500`                             | Minimum thumbnail-pixel contour area to count as a core.                 |
 | `--verify_thumb_height`| `400`                              | Per-panel height (px) of the side-by-side verify thumbnails.             |
-| `--valis_python`       | conda env path on `tanseyw`        | Python interpreter that has Valis installed.                             |
-| `--align_script`       | `~/valis/examples/align_two_images.py` | Path to the Valis alignment driver script.                           |
+| `--valis_python`       | conda env path on `tanseyw`        | Python interpreter that has Valis installed. The alignment driver (`bin/align_two_images.py`) is bundled in this directory. |
 | `--max_processed_dim`  | `1024`                             | `--max-processed-image-dim-px` passed to Valis.                          |
 | `--reference_stain`    | `inverted-fluorescence`            | `--reference-stain` passed to Valis.                                     |
 | `--image_stain`        | `he-hematoxylin-sparse`            | `--image-stain` passed to Valis.                                         |
