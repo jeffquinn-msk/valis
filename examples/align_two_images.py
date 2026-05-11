@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 import sys
 import time
 from valis import registration, feature_matcher, feature_detectors, preprocessing
@@ -78,9 +79,12 @@ def get_parser():
         "--image-stain",
         choices=stain_choices,
         default="auto",
-        help="Preprocessor for --image. 'he-hematoxylin' deconvolves H&E and keeps "
-        "the hematoxylin (nuclei) channel; 'inverted-fluorescence' un-inverts a "
-        "DAPI-style image so nuclei are bright; 'auto' lets valis decide.",
+        help="Preprocessor for --image. 'he-hematoxylin' deconvolves H&E and "
+        "keeps the hematoxylin (nuclei) channel, automatically falling back "
+        "to the sparse-dots variant if the matcher gets too few matches. "
+        "'he-hematoxylin-sparse' forces the sparse path. 'inverted-"
+        "fluorescence' un-inverts a DAPI-style image so nuclei are bright. "
+        "'auto' lets the script decide.",
     )
     parser.add_argument(
         "--reference-stain",
@@ -810,33 +814,34 @@ def main():
     # Build the processor_dict against the *final* registered file paths,
     # which differ from the raw inputs when we wrote a D4-corrected copy.
     image_path = img_out_path
-    processor_dict = {}
-    if args.image_stain != "auto":
-        processor_dict[image_path] = stain_to_processor[args.image_stain]
-    if args.reference_stain != "auto":
-        processor_dict[reference_path] = stain_to_processor[args.reference_stain]
 
-    # Create a Valis object and use it to register the slides in slide_src_dir
-    registrar = registration.Valis(
-        src_dir=args.output_dir,
-        dst_dir=args.output_dir,
-        name="registration",
-        img_list=[image_path, reference_path],
-        reference_img_f=reference_path,
-        thumbnail_size=4096,
-        max_processed_image_dim_px=args.max_processed_image_dim_px,
-        max_image_dim_px=args.max_processed_image_dim_px,
-        min_rigid_matches=args.min_rigid_matches,
-        check_for_reflections=False,
-        similarity_metric="euclidean",
-        align_to_reference=True,
-    )
+    def _build_processor_dict(
+        image_stain: str,
+        reference_stain: str,
+        sparse_kwargs: dict | None = None,
+    ) -> dict:
+        pd = {}
+        if image_stain != "auto":
+            cls, kw = stain_to_processor[image_stain]
+            if sparse_kwargs and image_stain in (
+                "he-hematoxylin",
+                "he-hematoxylin-sparse",
+            ):
+                kw = {**kw, **sparse_kwargs}
+            pd[image_path] = [cls, kw]
+        if reference_stain != "auto":
+            cls, kw = stain_to_processor[reference_stain]
+            if sparse_kwargs and reference_stain in (
+                "he-hematoxylin",
+                "he-hematoxylin-sparse",
+            ):
+                kw = {**kw, **sparse_kwargs}
+            pd[reference_path] = [cls, kw]
+        return pd
+
     matches_dir = os.path.join(args.output_dir, "registration", "matches")
-    try:
-        registrar.register(
-            processor_dict=processor_dict if processor_dict else None,
-        )
-    except TooFewMatchesError as e:
+
+    def _dump_failed_matches(registrar):
         # Try to dump whatever matches valis did find before bailing — the
         # serial-rigid registrar holds the initial-pass match_dict at this
         # point, which is exactly what the user needs to diagnose the
@@ -870,8 +875,110 @@ def main():
                 print(f"Saved pre-failure match viz: {out_f}")
         except Exception as draw_err:
             print(f"(could not draw matches: {draw_err})")
-        print(f"\nALIGNMENT ABORTED: {e}", flush=True)
-        raise SystemExit(2)
+
+    # Holder so the caller can grab the registrar from a failed attempt
+    # (so we can dump pre-failure match visualizations).
+    last_registrar = {"obj": None}
+
+    def _attempt_register(processor_dict):
+        # Wipe any prior registration output so Valis starts fresh
+        # (otherwise it short-circuits on cached processed images and
+        # we'd re-use the previous attempt's processor outputs).
+        reg_dir = os.path.join(args.output_dir, "registration")
+        if os.path.isdir(reg_dir):
+            shutil.rmtree(reg_dir)
+        registrar = registration.Valis(
+            src_dir=args.output_dir,
+            dst_dir=args.output_dir,
+            name="registration",
+            img_list=[image_path, reference_path],
+            reference_img_f=reference_path,
+            thumbnail_size=4096,
+            max_processed_image_dim_px=args.max_processed_image_dim_px,
+            max_image_dim_px=args.max_processed_image_dim_px,
+            min_rigid_matches=args.min_rigid_matches,
+            check_for_reflections=False,
+            similarity_metric="euclidean",
+            align_to_reference=True,
+        )
+        last_registrar["obj"] = registrar
+        registrar.register(
+            processor_dict=processor_dict if processor_dict else None,
+        )
+        return registrar
+
+    # Primary attempt with the user-selected stains. If `he-hematoxylin`
+    # fails to produce enough matches, retry once with the sparse variant
+    # (small bright dots resembling fluorescence nuclei) — same output is
+    # available explicitly via `he-hematoxylin-sparse`.
+    primary_pd = _build_processor_dict(args.image_stain, args.reference_stain)
+    try:
+        registrar = _attempt_register(primary_pd)
+    except TooFewMatchesError as e:
+        fb_image_stain = (
+            "he-hematoxylin-sparse"
+            if args.image_stain == "he-hematoxylin"
+            else args.image_stain
+        )
+        fb_reference_stain = (
+            "he-hematoxylin-sparse"
+            if args.reference_stain == "he-hematoxylin"
+            else args.reference_stain
+        )
+        has_fallback = (
+            fb_image_stain != args.image_stain
+            or fb_reference_stain != args.reference_stain
+        )
+        if not has_fallback:
+            if last_registrar["obj"] is not None:
+                _dump_failed_matches(last_registrar["obj"])
+            print(f"\nALIGNMENT ABORTED: {e}", flush=True)
+            raise SystemExit(2)
+
+        # Sweep sparse-extractor params: each (pct, sigma) gives a
+        # different density / blob-size tradeoff. We try several
+        # combinations before giving up so a single percentile that
+        # happens to be poorly tuned for this slide doesn't doom the
+        # whole alignment. Order goes default-first, then progressively
+        # denser/sparser variants.
+        sparse_sweep = [
+            {"sparse_pct": 90.0, "sparse_blur_sigma": 1.5},
+            {"sparse_pct": 85.0, "sparse_blur_sigma": 2.0},
+            {"sparse_pct": 95.0, "sparse_blur_sigma": 1.0},
+            {"sparse_pct": 80.0, "sparse_blur_sigma": 2.5},
+            {"sparse_pct": 97.0, "sparse_blur_sigma": 1.5},
+        ]
+        registrar = None
+        last_err: TooFewMatchesError | None = None
+        for i, sparse_kwargs in enumerate(sparse_sweep, start=1):
+            label = (
+                f"pct={sparse_kwargs['sparse_pct']}, "
+                f"sigma={sparse_kwargs['sparse_blur_sigma']}"
+            )
+            print(
+                f"[fallback {i}/{len(sparse_sweep)}] retrying with sparse "
+                f"hematoxylin extractor (image={fb_image_stain}, "
+                f"reference={fb_reference_stain}, {label})",
+                flush=True,
+            )
+            fb_pd = _build_processor_dict(
+                fb_image_stain, fb_reference_stain, sparse_kwargs=sparse_kwargs
+            )
+            try:
+                registrar = _attempt_register(fb_pd)
+                break
+            except TooFewMatchesError as e2:
+                last_err = e2
+                continue
+        if registrar is None:
+            if last_registrar["obj"] is not None:
+                _dump_failed_matches(last_registrar["obj"])
+            print(
+                f"\nALIGNMENT ABORTED: exhausted sparse sweep "
+                f"({len(sparse_sweep)} attempts). Last error: {last_err}",
+                flush=True,
+            )
+            raise SystemExit(2)
 
     registrar.draw_matches(matches_dir)
     print(f"Saved feature-match visualization to {matches_dir}")
