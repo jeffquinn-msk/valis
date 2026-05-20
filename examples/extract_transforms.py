@@ -76,8 +76,12 @@ def main(data_dir: str, out_dir: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export VALIS transformation matrices")
-    parser.add_argument("--data", required=True, help="Path to the registrar's data/ directory")
-    parser.add_argument("--out", default=None, help="Output directory (default: data/../transforms)")
+    parser.add_argument(
+        "--data", required=True, help="Path to the registrar's data/ directory"
+    )
+    parser.add_argument(
+        "--out", default=None, help="Output directory (default: data/../transforms)"
+    )
     args = parser.parse_args()
 
     out = args.out or str(pathlib.Path(args.data).parent / "transforms")

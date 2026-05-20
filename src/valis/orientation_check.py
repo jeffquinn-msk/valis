@@ -17,24 +17,24 @@ logger = logging.getLogger(__name__)
 
 
 D4_TRANSFORMS = (
-    ("identity",     0, False),
-    ("rot90",        1, False),
-    ("rot180",       2, False),
-    ("rot270",       3, False),
-    ("flip",         0, True),
-    ("flip_rot90",   1, True),
-    ("flip_rot180",  2, True),
-    ("flip_rot270",  3, True),
+    ("identity", 0, False),
+    ("rot90", 1, False),
+    ("rot180", 2, False),
+    ("rot270", 3, False),
+    ("flip", 0, True),
+    ("flip_rot90", 1, True),
+    ("flip_rot180", 2, True),
+    ("flip_rot270", 3, True),
 )
 
 
 @dataclass
 class OrientationMatch:
     name: str
-    k: int           # number of CCW 90-degree rotations
-    mirror: bool     # horizontal flip applied before rotation
-    score: float     # normalized cross-correlation in [-1, 1]
-    scores: dict     # name -> score for all 8 transforms
+    k: int  # number of CCW 90-degree rotations
+    mirror: bool  # horizontal flip applied before rotation
+    score: float  # normalized cross-correlation in [-1, 1]
+    scores: dict  # name -> score for all 8 transforms
 
 
 def apply_d4(img: np.ndarray, k: int, mirror: bool) -> np.ndarray:
@@ -57,11 +57,11 @@ def apply_d4_pyvips(img, k: int, mirror: bool):
         img = img.fliphor()
     k = k % 4
     if k == 1:
-        img = img.rot270()       # CCW 90
+        img = img.rot270()  # CCW 90
     elif k == 2:
         img = img.rot180()
     elif k == 3:
-        img = img.rot90()        # CCW 270 == CW 90
+        img = img.rot90()  # CCW 270 == CW 90
     return img
 
 
@@ -132,16 +132,20 @@ def find_best_orientation(
 
     # Don't upsample: cap at the smaller side of the smaller input. Going
     # beyond that fabricates pixels and can't add real signal.
-    max_useful = min(reference.shape[0], reference.shape[1],
-                     moving.shape[0], moving.shape[1])
+    max_useful = min(
+        reference.shape[0], reference.shape[1], moving.shape[0], moving.shape[1]
+    )
     effective = min(downsample_size, max_useful)
     if effective != downsample_size:
         logger.info(
             "orientation check: clamping downsample_size %d -> %d "
             "(max useful given ref %dx%d and moving %dx%d)",
-            downsample_size, effective,
-            reference.shape[1], reference.shape[0],
-            moving.shape[1], moving.shape[0],
+            downsample_size,
+            effective,
+            reference.shape[1],
+            reference.shape[0],
+            moving.shape[1],
+            moving.shape[0],
         )
     downsample_size = effective
 
@@ -165,6 +169,9 @@ def find_best_orientation(
     name, k, mirror, score = best
     logger.info(
         "orientation check: best=%s score=%.4f (size=%d, gradient=%s)",
-        name, score, downsample_size, use_gradient,
+        name,
+        score,
+        downsample_size,
+        use_gradient,
     )
     return OrientationMatch(name=name, k=k, mirror=mirror, score=score, scores=scores)

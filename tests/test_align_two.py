@@ -37,7 +37,9 @@ def test_align_two_images():
     from valis import registration
 
     img_list = _ensure_datasets()
-    reference = img_list[1]  # CD20 FOXP3 CD3 as reference (matches example script pattern)
+    reference = img_list[
+        1
+    ]  # CD20 FOXP3 CD3 as reference (matches example script pattern)
 
     registrar = registration.Valis(
         src_dir=DATASETS_DIR,
@@ -54,10 +56,15 @@ def test_align_two_images():
     assert len(error_df) > 0, "error_df is empty"
 
     max_error = error_df["mean_non_rigid_D"].max()
-    assert max_error < 50, f"Alignment error too high: {max_error:.1f}px (threshold: 50px)"
+    assert (
+        max_error < 50
+    ), f"Alignment error too high: {max_error:.1f}px (threshold: 50px)"
 
     # Verify the reference slide has no warping applied
     ref_slide = registrar.get_ref_slide()
     import numpy as np
+
     dxdy = np.dstack(ref_slide.bk_dxdy)
-    assert dxdy.min() == 0 and dxdy.max() == 0, "Reference slide should have zero displacement field"
+    assert (
+        dxdy.min() == 0 and dxdy.max() == 0
+    ), "Reference slide should have zero displacement field"

@@ -23,6 +23,7 @@ try:
     import kornia
     from kornia.feature import DISK, DeDoDe
     from .superglue_models import superpoint
+
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False

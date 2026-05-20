@@ -1509,8 +1509,12 @@ class SerialRigidRegistrar(object):
                         reflected_matches12.append(filtered_match_info12)
                         reflected_matches21.append(filtered_match_info21)
                         if keep_unfiltered:
-                            unfiltered_reflected_matches12.append(unfiltered_match_info12)
-                            unfiltered_reflected_matches21.append(unfiltered_match_info21)
+                            unfiltered_reflected_matches12.append(
+                                unfiltered_match_info12
+                            )
+                            unfiltered_reflected_matches21.append(
+                                unfiltered_match_info21
+                            )
                         continue
 
                     _ = transformer.estimate(
