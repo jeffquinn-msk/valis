@@ -94,7 +94,7 @@ on 30+ alignments.
 | Param            | Description                                                                                                                                  |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--parquet`      | TMA-boundaries **GeoParquet** (`tma_boundaries_with_metadata.geo.parquet`). One row per TMA, polygon geometry in **microns**, column `tma_id`. |
-| `--morphology`   | Reference morphology **OME-TIFF** (e.g. inverted-fluorescence focus image). Coordinate system used for the final composed output. Width/height are read from the file header. |
+| `--morphology`   | Reference morphology **OME-TIFF** (standard fluorescence focus image: bright signal on dark background; inverted-fluorescence is also supported via `--reference_stain inverted-fluorescence`). Coordinate system used for the final composed output. Width/height are read from the file header. |
 | `--he`           | Moving **H&E OME-TIFF** to be aligned to the morphology image.                                                                               |
 | `--outdir`       | Output directory (default: `results`).                                                                                                       |
 
@@ -111,7 +111,7 @@ on 30+ alignments.
 | `--verify_thumb_height`| `400`                              | Per-panel height (px) of the side-by-side verify thumbnails.             |
 | `--valis_python`       | conda env path on `tanseyw`        | Python interpreter that has Valis installed. The alignment driver (`bin/align_two_images.py`) is bundled in this directory. |
 | `--max_processed_dim`  | `1024`                             | `--max-processed-image-dim-px` passed to Valis.                          |
-| `--reference_stain`    | `inverted-fluorescence`            | `--reference-stain` passed to Valis.                                     |
+| `--reference_stain`    | `fluorescence`                     | `--reference-stain` passed to Valis. Use `inverted-fluorescence` for white-background DAPI-style inputs. |
 | `--image_stain`        | `he-hematoxylin-sparse`            | `--image-stain` passed to Valis.                                         |
 
 ## Outputs
@@ -149,7 +149,7 @@ Then:
 ```bash
 nextflow run main.nf \
     --parquet     tma_boundaries_with_metadata.geo.parquet \
-    --morphology  morphology_focus_0000_8bit_inverted.tif \
+    --morphology  morphology_focus_0000_8bit.tif \
     --he          ES-3990_R1-S1_cropped_rgb.tif \
     --outdir      results
 ```
@@ -176,5 +176,7 @@ nextflow run main.nf -resume [...]
   and that both modalities have the same number of rows. The original
   ES-3990 case had 10 rows; set `--n_rows` accordingly.
 - **Stain flags** are forwarded verbatim to Valis. The defaults are
-  tuned for inverted-fluorescence reference vs. sparse H&E hematoxylin
-  moving — change them if you align other modality pairs.
+  tuned for standard fluorescence reference (bright nuclei on dark bg)
+  vs. sparse H&E hematoxylin moving — change them if you align other
+  modality pairs. For an inverted (white-background) DAPI-style reference,
+  pass `--reference_stain inverted-fluorescence`.

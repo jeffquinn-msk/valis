@@ -70,6 +70,7 @@ def get_parser():
         "he-hematoxylin",
         "he-hematoxylin-raw",
         "he-hematoxylin-sparse",
+        "fluorescence",
         "inverted-fluorescence",
         "od",
         "colorful-standardizer",
@@ -82,9 +83,10 @@ def get_parser():
         help="Preprocessor for --image. 'he-hematoxylin' deconvolves H&E and "
         "keeps the hematoxylin (nuclei) channel, automatically falling back "
         "to the sparse-dots variant if the matcher gets too few matches. "
-        "'he-hematoxylin-sparse' forces the sparse path. 'inverted-"
-        "fluorescence' un-inverts a DAPI-style image so nuclei are bright. "
-        "'auto' lets the script decide.",
+        "'he-hematoxylin-sparse' forces the sparse path. 'fluorescence' "
+        "percentile-normalizes a standard (nuclei-bright on dark bg) image. "
+        "'inverted-fluorescence' un-inverts a DAPI-style image so nuclei are "
+        "bright. 'auto' lets the script decide.",
     )
     parser.add_argument(
         "--reference-stain",
@@ -261,6 +263,34 @@ def _fix_he_swap(normalized: np.ndarray, rgb: np.ndarray) -> np.ndarray:
     if c1 > c0:
         return normalized[::-1].copy()
     return normalized
+
+
+class Fluorescence(preprocessing.ImageProcesser):
+    """Percentile-normalize a standard fluorescence greyscale image (bright
+    signal on dark background) without inverting. Output is uint8 with nuclei
+    bright — matching the convention of hematoxylin deconvolution output.
+    """
+
+    def create_mask(self):
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        # Standard fluorescence: tissue is bright on a dark bg.
+        thresh = np.percentile(img, 10)
+        mask = (img > thresh).astype(np.uint8) * 255
+        return mask
+
+    def process_image(self, *args, **kwargs):
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        lo, hi = np.percentile(img, (1, 99))
+        if hi <= lo:
+            hi = lo + 1.0
+        img = np.clip((img - lo) / (hi - lo), 0.0, 1.0)
+        return (img * 255).astype(np.uint8)
 
 
 class InvertedFluorescence(preprocessing.ImageProcesser):
@@ -721,6 +751,7 @@ def main():
         "he-hematoxylin": [HematoxylinExtractor, {}],
         "he-hematoxylin-raw": [HematoxylinExtractor, {"use_macenko": False}],
         "he-hematoxylin-sparse": [HematoxylinExtractor, {"sparse": True}],
+        "fluorescence": [Fluorescence, {}],
         "inverted-fluorescence": [InvertedFluorescence, {}],
         "od": [preprocessing.OD, {}],
         "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
@@ -739,8 +770,9 @@ def main():
         mean = float(thumb.mean())
         if peek.bands >= 3:
             return "he-hematoxylin"
-        # single-band: high mean => bright bg (inverted DAPI), un-invert
-        return "inverted-fluorescence" if mean > 127 else "luminosity"
+        # single-band: high mean => bright bg (inverted DAPI), un-invert;
+        # low mean => standard fluorescence (bright nuclei on dark bg).
+        return "inverted-fluorescence" if mean > 127 else "fluorescence"
 
     if args.image_stain == "auto":
         args.image_stain = _resolve_auto_stain(args.image)

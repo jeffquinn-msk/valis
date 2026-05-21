@@ -25,7 +25,7 @@ params.verify_thumb_height = 400
 
 params.valis_python    = "/data1/tanseyw/quinnj2/conda_environments/valis/bin/python"
 params.max_processed_dim = 1024
-params.reference_stain = "inverted-fluorescence"
+params.reference_stain = "fluorescence"
 params.image_stain     = "he-hematoxylin-sparse"
 
 
