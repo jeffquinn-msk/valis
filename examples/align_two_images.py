@@ -70,6 +70,7 @@ def get_parser():
         "he-hematoxylin",
         "he-hematoxylin-raw",
         "he-hematoxylin-sparse",
+        "fluorescence",
         "inverted-fluorescence",
         "od",
         "colorful-standardizer",
@@ -261,6 +262,40 @@ def _fix_he_swap(normalized: np.ndarray, rgb: np.ndarray) -> np.ndarray:
     if c1 > c0:
         return normalized[::-1].copy()
     return normalized
+
+
+class Fluorescence(preprocessing.ImageProcesser):
+    """Preprocess a single-band fluorescence image (e.g. DAPI) for matching.
+
+    Nuclei are already bright on a dark background, so we keep polarity and
+    apply only a simple percentile contrast stretch (default 1–99). We
+    deliberately do NOT run adaptive histogram equalization (CLAHE) the way
+    valis's ChannelGetter does: on the COMET/Xenium DAPI pair a plain
+    percentile clip produced far more DISK+LightGlue matches than CLAHE
+    (≈800 vs ≈520 filtered matches at 2048px). CLAHE amplifies local noise
+    into spurious, non-repeatable keypoints that the matcher can't pair up
+    across the two modalities.
+
+    The tissue mask uses valis's multichannel path, which (unlike the RGB-only
+    Luminosity mask) works on 1-band input.
+    """
+
+    def create_mask(self):
+        from valis.preprocessing import create_tissue_mask_from_multichannel
+
+        _, tissue_mask = create_tissue_mask_from_multichannel(self.image)
+        return tissue_mask
+
+    def process_image(self, *args, plo: float = 1.0, phi: float = 99.0, **kwargs):
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        lo, hi = np.percentile(img, (plo, phi))
+        if hi <= lo:
+            hi = lo + 1e-6
+        img = np.clip((img - lo) / (hi - lo), 0.0, 1.0)
+        return (img * 255).astype(np.uint8)
 
 
 class InvertedFluorescence(preprocessing.ImageProcesser):
@@ -721,6 +756,10 @@ def main():
         "he-hematoxylin": [HematoxylinExtractor, {}],
         "he-hematoxylin-raw": [HematoxylinExtractor, {"use_macenko": False}],
         "he-hematoxylin-sparse": [HematoxylinExtractor, {"sparse": True}],
+        # Single-band fluorescence (e.g. DAPI): keep polarity, simple 1-99
+        # percentile stretch, NO CLAHE (which hurt match counts). See the
+        # Fluorescence docstring for the match-count comparison.
+        "fluorescence": [Fluorescence, {}],
         "inverted-fluorescence": [InvertedFluorescence, {}],
         "od": [preprocessing.OD, {}],
         "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
@@ -739,8 +778,11 @@ def main():
         mean = float(thumb.mean())
         if peek.bands >= 3:
             return "he-hematoxylin"
-        # single-band: high mean => bright bg (inverted DAPI), un-invert
-        return "inverted-fluorescence" if mean > 127 else "luminosity"
+        # single-band: high mean => bright bg (inverted DAPI), un-invert.
+        # Low mean => standard fluorescence (bright nuclei on dark bg); use
+        # the ChannelGetter path, not Luminosity (whose RGB-only mask crashes
+        # on 1-band input).
+        return "inverted-fluorescence" if mean > 127 else "fluorescence"
 
     if args.image_stain == "auto":
         args.image_stain = _resolve_auto_stain(args.image)
@@ -764,13 +806,24 @@ def main():
     else:
         ref_for_check = pyvips.Image.new_from_file(ref_out_path, page=0)
         moving_for_check = pyvips.Image.new_from_file(args.image, page=0)
+
+        # For single-band fluorescence, score orientation on raw greyscale
+        # NCC: both sides are the same modality (e.g. DAPI), so luminance is
+        # the natural common signal. Feeding ChannelGetter a pseudo-RGB
+        # thumbnail here would push it down its reader-based channel-indexing
+        # path, so skip the processor for this stain only.
+        def _orientation_processor(stain):
+            if stain == "fluorescence":
+                return None
+            return stain_to_processor.get(stain)
+
         _, orient_match = check_and_correct_orientation(
             moving_img=moving_for_check,
             reference_img=ref_for_check,
             downsample_size=2048,
             margin_threshold=args.orientation_margin,
-            moving_processor=stain_to_processor.get(args.image_stain),
-            reference_processor=stain_to_processor.get(args.reference_stain),
+            moving_processor=_orientation_processor(args.image_stain),
+            reference_processor=_orientation_processor(args.reference_stain),
             moving_src_f=args.image,
             reference_src_f=args.reference,
         )
@@ -885,7 +938,10 @@ def main():
             name="registration",
             img_list=[image_path, reference_path],
             reference_img_f=reference_path,
-            thumbnail_size=4096,
+            # Tie the thumbnail size to the processing dim so a single flag
+            # (--max-processed-image-dim-px) controls memory across all
+            # stages; a hardcoded 4096 thumbnail OOMs on large slides.
+            thumbnail_size=args.max_processed_image_dim_px,
             max_processed_image_dim_px=args.max_processed_image_dim_px,
             max_image_dim_px=args.max_processed_image_dim_px,
             min_rigid_matches=args.min_rigid_matches,
