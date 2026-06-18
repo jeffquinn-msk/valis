@@ -2,10 +2,21 @@
 """Warp a new moving image through an existing Valis registration result.
 
 Given a saved Valis registrar (the ``*_registrar.pickle`` produced by
-``Valis.register()``) and a new image, this looks up one of the slides in the
-registration and re-uses its learned warp (rigid matrix ``M`` + non-rigid
-displacement field) to warp the new image into the registered coordinate space.
-The result is written as an OME-TIFF.
+``Valis.register()``) and a new image, this re-uses a registered slide's
+learned warp (rigid matrix ``M`` + non-rigid displacement field) to warp the
+new image into the registered coordinate space. The result is written as an
+OME-TIFF.
+
+A note on Valis's model: there is no single "fixed" / "moving" pair. Valis
+aligns a *stack* of slides onto one **reference** slide (the "fixed" one) and
+stores a separate warp for every other ("moving") slide. So to warp a new
+image you must say which slide's warp to apply:
+
+* If the registration has exactly one non-reference (moving) slide, that warp
+  is used automatically -- this covers the common two-image case.
+* Otherwise (multi-slide alignment) the choice is ambiguous and you must name
+  the slide with ``--slide``. Use ``--list`` to see the available slides and
+  which one is the reference.
 
 The new image must be an alternate copy of the slide that produced the chosen
 warp -- e.g. a different stain channel, a mask, or a re-scanned version of the
@@ -15,11 +26,18 @@ approximate (Valis will log a warning).
 
 Examples
 --------
-List the slide names available in a registrar::
+List the slides in a registrar (and which is the reference)::
 
     python scripts/warp_new_image.py --registrar path/to/foo_registrar.pickle --list
 
-Warp a new image using the warp from slide "HE"::
+Warp a new image (single moving slide -- warp inferred automatically)::
+
+    python scripts/warp_new_image.py \
+        --registrar path/to/foo_registrar.pickle \
+        --moving-image path/to/new_image.ome.tiff \
+        --output path/to/new_image_registered.ome.tiff
+
+Multi-slide registration -- name the slide whose warp to apply::
 
     python scripts/warp_new_image.py \
         --registrar path/to/foo_registrar.pickle \
