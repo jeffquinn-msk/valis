@@ -25,6 +25,28 @@ After it passes, visual artifacts are written to `tests/test_output/smoketest/`:
 - `overlaps/smoketest_non_rigid_overlap.png` — after non-rigid registration
 - `deformation_fields/` — warp meshes showing how much each image was corrected
 
+## Interactive alignment web app
+
+An interactive web app lets you tune preprocessing per image and see DISK+LightGlue
+matches update in real time on downsampled thumbnails, then launch the full
+registration and pan/zoom the aligned result in the browser.
+
+```bash
+uv sync --extra web
+.venv/bin/valis-webapp --data-root /path/to/your/slides
+# open http://127.0.0.1:8000
+```
+
+Workflow: **Open images…** browses `--data-root` (sandboxed) to pick a reference and a
+moving `.ome.tif`; each panel has a preprocessor dropdown + parameter sliders and a
+shared detector/matcher control block. **Run Keypoint Detection** overlays the live
+LightGlue matches; **Run Alignment** runs the full pipeline and opens the aligned
+`aligned.ome.tif` in an OpenSeadragon viewer (via the bundled GeoTIFFTileSource plugin,
+which reads the pyramidal TIFF directly — no tile export).
+
+The shared preprocessing/registration logic lives in `valis.interactive` (used by both
+this app and `scripts/align_two_images.py`).
+
 ## Known Issues
 
 Python will segfault is this project (`valis`) is not imported first before any other pytorch-related import.

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Valis — Interactive Alignment</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Valis · Interactive Alignment</h1>
+    <div class="header-actions">
+      <span id="loaded-label" class="muted">No images loaded</span>
+      <button id="open-btn">Open images…</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="tuning">
+      <div class="panels">
+        <div class="panel" data-side="image">
+          <h2>Moving image</h2>
+          <div class="canvas-wrap">
+            <canvas class="preview" width="480" height="480"></canvas>
+          </div>
+          <label class="ctrl">
+            <span>Preprocessor</span>
+            <select class="processor-select"></select>
+          </label>
+          <div class="params"></div>
+        </div>
+
+        <div class="panel" data-side="reference">
+          <h2>Reference image</h2>
+          <div class="canvas-wrap">
+            <canvas class="preview" width="480" height="480"></canvas>
+          </div>
+          <label class="ctrl">
+            <span>Preprocessor</span>
+            <select class="processor-select"></select>
+          </label>
+          <div class="params"></div>
+        </div>
+      </div>
+
+      <canvas id="match-overlay"></canvas>
+
+      <div id="matcher-controls">
+        <h3>Detector / matcher</h3>
+        <div class="matcher-grid"></div>
+      </div>
+
+      <div class="actions">
+        <button id="match-btn" disabled>Run Keypoint Detection</button>
+        <button id="align-btn" disabled>Run Alignment</button>
+        <span id="match-readout" class="muted"></span>
+      </div>
+    </section>
+
+    <section id="result" hidden>
+      <div class="result-head">
+        <h2>Aligned result</h2>
+        <label class="ctrl inline">
+          <span>Reference opacity</span>
+          <input id="opacity" type="range" min="0" max="1" step="0.05" value="0.5" />
+        </label>
+        <button id="back-btn">← Back to tuning</button>
+      </div>
+      <div id="osd"></div>
+    </section>
+  </main>
+
+  <!-- Directory browser modal -->
+  <div id="browse-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <strong>Select images</strong>
+        <button id="browse-close">✕</button>
+      </div>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="browser" id="browser"></div>
+      <div class="selection">
+        <div>Reference: <span id="sel-reference" class="muted">— click a file —</span></div>
+        <div>Moving: <span id="sel-image" class="muted">— click a file —</span></div>
+      </div>
+      <div class="modal-actions">
+        <span class="muted" id="pick-hint">First file → reference, second → moving.</span>
+        <button id="load-btn" disabled>Load</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <script src="/static/vendor/openseadragon.min.js"></script>
+  <script src="/static/vendor/geotiff-tilesource.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
