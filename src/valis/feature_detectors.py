@@ -815,3 +815,93 @@ class DeDoDeFD(KorniaFD):
             desc = res[2].detach().squeeze(0).numpy()
 
         return kp_pos_xy, desc
+
+
+class LoMaFD(FeatureDD):
+    """
+    LoMa-B's feature detector and descriptor: DaD keypoints described with
+    DeDoDe-G (DINOv2 ViT-L backbone). The LoMa matcher was trained on these
+    features, so this is the only detector ``LoMaMatcher`` accepts.
+
+    Holds the full LoMa-B model (detector, descriptor and matcher weights);
+    ``LoMaMatcher`` reuses it rather than loading the weights a second time.
+    Runs on CUDA, then MPS, then CPU, whichever is available first.
+
+    Citation
+    --------
+    David Nordström, Johan Edstedt, et al. LoMa: Local Feature Matching
+    Revisited. ECCV 2026.
+
+    """
+
+    # Input sizes used by LoMa's own image loaders: DaD resizes the longest side
+    # to 1024 (keeping aspect, multiple of 8), DeDoDe-G describes at 784x784.
+    DETECT_SIZE = 1024
+    DESCRIBE_HW = (784, 784)
+
+    def __init__(self, num_features=MAX_FEATURES, *args, **kwargs):
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                f"{self.__class__.__name__} requires torch. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
+        super().__init__(*args, **kwargs)
+        from .loma_models import LoMa, LoMaB
+        from .loma_models.device import device
+
+        self.device = device
+        self.model = LoMa(LoMaB())
+        self.kp_detector_name = "DaD"
+        self.kp_descriptor_name = "DeDoDeG"
+        self.num_features = num_features
+
+    @staticmethod
+    def _resize(t_img, hw):
+        out = torch.nn.functional.interpolate(
+            t_img, size=hw, mode="bicubic", align_corners=False, antialias=True
+        )
+        return out.clamp(0, 1)
+
+    def _detect_and_compute(self, image, *args, **kwargs):
+        """Detect the features in the image
+
+        Parameters
+        ----------
+        image : ndarray
+            Image in which the features will be detected. Can be
+            single channel or RGB
+
+        Returns
+        -------
+        kp : ndarry
+            (N, 2) array positions of keypoints in xy corrdinates for N
+            keypoints
+
+        desc : ndarry
+            (N, M) array containing M features for each of the N keypoints
+
+        """
+
+        h, w = image.shape[0:2]
+        scale = self.DETECT_SIZE / max(h, w)
+        detect_hw = (int(h * scale) // 8 * 8, int(w * scale) // 8 * 8)
+
+        t_img = preprocessing.img_to_tensor(image).float().to(self.device)
+        with torch.inference_mode():
+            # Keypoints come back in [-1, 1] coordinates, so they index the
+            # descriptor's differently sized input directly.
+            norm_kp = self.model._detector.detect(
+                self._resize(t_img, detect_hw), num_keypoints=self.num_features
+            )["keypoints"]
+            desc = self.model._descriptor.describe_keypoints(
+                self._resize(t_img, self.DESCRIBE_HW), norm_kp
+            )["descriptions"]
+
+        norm_kp = norm_kp[0].float().cpu().numpy()
+        # Normalized coords treat pixel edges as -1/1; valis uses pixel centers.
+        kp_pos_xy = np.column_stack(
+            [w * (norm_kp[:, 0] + 1) / 2 - 0.5, h * (norm_kp[:, 1] + 1) / 2 - 0.5]
+        )
+        desc = desc[0].float().cpu().numpy()
+
+        return kp_pos_xy, desc

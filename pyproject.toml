@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-valis = ["superglue_models/weights/*", "webapp/static/**/*"]
+valis = ["superglue_models/weights/*", "loma_models/LICENSE", "webapp/static/**/*"]
 
 [project.scripts]
 valis-webapp = "valis.webapp.__main__:main"

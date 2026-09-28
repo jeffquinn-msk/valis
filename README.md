@@ -60,14 +60,22 @@ In `--output-dir`:
 | `--min-rigid-matches` | `30` | Abort with an error if the first matching pass finds fewer matches than this. |
 | `--orientation-margin` | `0.0` | Minimum score margin required before the orientation check rotates or flips the moving image. |
 | `--no-script-orientation` | off | Skip the script's orientation check and let valis handle reflections. |
-| `--detector` | `disk` | Feature detector: `disk` or `dedode`. |
+| `--matcher` | `lightglue` | Feature matcher: `lightglue` or `loma-b`. |
+| `--detector` | `disk` | Feature detector used with LightGlue: `disk` or `dedode`. |
 | `--max-keypoints` | `7500` | Maximum keypoints per image. |
 | `--ransac-thresh` | `7` | Outlier-filter reprojection threshold, in pixels. |
 | `--filter-method` | `magsac` | Outlier filter for matches: `magsac` or `ransac`. |
 
-Matching always uses LightGlue. `--detector`, `--max-keypoints`, `--ransac-thresh` and
-`--filter-method` are the same controls as the web app's detector/matcher panel. If
-none is given, valis's default matcher is used.
+`--matcher loma-b` swaps LightGlue for [LoMa-B](https://github.com/davnords/LoMa). LoMa
+brings its own DaD keypoints and DeDoDe-G descriptors, so it ignores `--detector`. Its
+inference code is vendored in `valis.loma_models`. The first run downloads about 2 GB of
+weights (the LoMa-B checkpoint, DaD and DINOv2 ViT-L), and it needs roughly 4–5 GB of
+RAM. In Python, use `feature_matcher.LoMaMatcher()`, which builds its own
+`feature_detectors.LoMaFD`.
+
+`--matcher`, `--detector`, `--max-keypoints`, `--ransac-thresh` and `--filter-method`
+are the same controls as the web app's detector/matcher panel. If none is given,
+valis's default matcher is used.
 
 If `he-hematoxylin` gets too few matches, the script automatically retries with the
 sparse hematoxylin extractor over several parameter settings before giving up.
