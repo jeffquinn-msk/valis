@@ -1774,7 +1774,10 @@ class LightGlueMatcher(Matcher):
         # # Remove outliers
         filtered_matched_kp1_xy, filtered_matched_kp2_xy, good_matches_idx = (
             filter_matches_ransac(
-                matched_kp1_xy, matched_kp2_xy, method=self.match_filter_method
+                matched_kp1_xy,
+                matched_kp2_xy,
+                ransac_val=self.ransac_thresh,
+                method=self.match_filter_method,
             )
         )
 

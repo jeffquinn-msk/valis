@@ -221,7 +221,8 @@ def pyvips_to_thumbnail_array(img: pyvips.Image, size: int) -> np.ndarray:
 
     Uses pyvips' resize so we never materialize the full slide in memory.
     """
-    scale = size / max(img.width, img.height)
+    # Never upsample: a larger "thumbnail" only costs memory downstream.
+    scale = min(1.0, size / max(img.width, img.height))
     small = img.resize(scale)
     if small.bands > 1:
         small = small.colourspace("b-w")
@@ -238,7 +239,8 @@ def pyvips_to_thumbnail_rgb_array(img: pyvips.Image, size: int) -> np.ndarray:
     color-aware preprocessors (HematoxylinExtractor, OD, ...) on a
     thumbnail.
     """
-    scale = size / max(img.width, img.height)
+    # Never upsample: a larger "thumbnail" only costs memory downstream.
+    scale = min(1.0, size / max(img.width, img.height))
     small = img.resize(scale)
     if small.format == "ushort":
         small = (small >> 8).cast("uchar")
@@ -436,7 +438,7 @@ MATCHER_SCHEMA = {
     "ransac_thresh": {"type": "float", "min": 1, "max": 15, "step": 1, "default": 7},
     "filter_method": {
         "type": "enum",
-        "options": ["magsac", "ransac", "gms", "none"],
+        "options": ["magsac", "ransac", "none"],
         "default": "magsac",
     },
 }

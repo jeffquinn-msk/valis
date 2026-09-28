@@ -376,6 +376,7 @@ async function runAlignment() {
     reference: {
       processor: state.side.reference.processor, params: state.side.reference.params,
     },
+    matcher: state.matcher,
     max_dim: 2048,
     min_matches: 30,
   });
@@ -425,6 +426,23 @@ function ensureGeoTIFFEnabled() {
   return !!(window.OpenSeadragon && OpenSeadragon.GeoTIFFTileSource);
 }
 
+const TINT_MOVING = [0, 1, 0]; // green
+const TINT_REFERENCE = [1, 0, 1]; // magenta
+
+function tintContext(ctx, [r, g, b]) {
+  // Map a grayscale tile's intensity onto a single color, in place.
+  const { width, height } = ctx.canvas;
+  const img = ctx.getImageData(0, 0, width, height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = d[i];
+    d[i] = v * r;
+    d[i + 1] = v * g;
+    d[i + 2] = v * b;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 async function showResult(jobId) {
   $("#tuning").hidden = true;
   const result = $("#result");
@@ -434,20 +452,42 @@ async function showResult(jobId) {
     if (!ensureGeoTIFFEnabled()) {
       throw new Error("GeoTIFFTileSource plugin not loaded");
     }
-    const sources = await OpenSeadragon.GeoTIFFTileSource.getAllTileSources(url);
+    // aligned.ome.tif stacks two same-size pages (0 = warped moving image,
+    // 1 = reference). The plugin merges same-size pages into one source and
+    // shows planeIndex 0, so request each page as its own source. (The
+    // options arg is required anyway: the plugin reads opts.GeoTIFFOptions.)
+    const plane = (i) => OpenSeadragon.GeoTIFFTileSource
+      .getAllTileSources(url, { hints: { layout: { planeIndex: i } } })
+      .then((srcs) => srcs[0]);
+    const [moving, reference] = await Promise.all([plane(0), plane(1)]);
     if (state.osdViewer) { state.osdViewer.destroy(); }
     const viewer = OpenSeadragon({
       element: $("#osd"),
+      drawer: "canvas", // the default WebGL drawer rendered nothing in testing
       showNavigator: true,
       showNavigationControl: false, // avoids needing button image assets
       gestureSettingsMouse: { clickToZoom: false },
-      tileSources: [sources[0]],
+      tileSources: [moving],
     });
     state.osdViewer = viewer;
+    // Tint the grayscale planes (moving = green, reference = magenta) and add
+    // them, so aligned tissue reads white and misalignment shows colored fringes.
+    // Registered before "open" so the first tiles are tinted too.
+    const tintFor = (tiledImage) =>
+      tiledImage.source === moving ? TINT_MOVING : TINT_REFERENCE;
+    viewer.addHandler("tile-invalidated", async (e) => {
+      const ctx = await e.getData("context2d");
+      if (!ctx || (await e.outdated())) return;
+      tintContext(ctx, tintFor(e.tiledImage));
+      await e.setData(ctx, "context2d");
+    });
     viewer.addHandler("open", () => {
-      if (sources[1]) {
-        viewer.addTiledImage({ tileSource: sources[1], opacity: 0.5, index: 1 });
-      }
+      viewer.addTiledImage({
+        tileSource: reference,
+        opacity: parseFloat($("#opacity").value),
+        compositeOperation: "lighter",
+        index: 1,
+      });
     });
     $("#opacity").oninput = (e) => {
       const item = viewer.world.getItemAt(1);

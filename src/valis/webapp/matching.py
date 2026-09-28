@@ -10,43 +10,30 @@ import threading
 
 import numpy as np
 
-from valis import feature_detectors, feature_matcher
+from valis.interactive import pipeline
 
 _lock = threading.Lock()
 _detectors = {}  # (detector_type, max_keypoints) -> FeatureDD
-_matchers = {}  # (det_key, filter_name) -> LightGlueMatcher
-
-_FILTER_MAP = {
-    "magsac": feature_matcher.USAC_MAGSAC_NAME,
-    "ransac": feature_matcher.RANSAC_NAME,
-    "gms": feature_matcher.GMS_NAME,
-    # "none" handled specially: return the unfiltered matches.
-}
+_matchers = {}  # (det_key, filter_method, ransac_thresh) -> LightGlueMatcher
 
 
 def _get_detector(detector: str, max_keypoints: int):
     key = (detector, int(max_keypoints))
     det = _detectors.get(key)
     if det is None:
-        if detector == "disk":
-            det = feature_detectors.DiskFD(num_features=int(max_keypoints))
-        elif detector == "dedode":
-            det = feature_detectors.DeDoDeFD(num_features=int(max_keypoints))
-        else:
-            raise ValueError(f"unknown detector: {detector!r}")
+        det = pipeline.build_detector(detector, max_keypoints)
         _detectors[key] = det
     return det, key
 
 
 def _get_matcher(det, det_key, filter_method: str, ransac_thresh: float):
-    filter_name = _FILTER_MAP.get(filter_method, feature_matcher.USAC_MAGSAC_NAME)
-    key = (det_key, filter_name, float(ransac_thresh))
+    key = (det_key, filter_method, int(ransac_thresh))
     mat = _matchers.get(key)
     if mat is None:
-        mat = feature_matcher.LightGlueMatcher(
+        mat = pipeline.build_matcher(
+            filter_method=filter_method,
+            ransac_thresh=ransac_thresh,
             feature_detector=det,
-            match_filter_method=filter_name,
-            ransac_thresh=int(ransac_thresh),
         )
         _matchers[key] = mat
     return mat

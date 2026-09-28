@@ -25,6 +25,53 @@ After it passes, visual artifacts are written to `tests/test_output/smoketest/`:
 - `overlaps/smoketest_non_rigid_overlap.png` — after non-rigid registration
 - `deformation_fields/` — warp meshes showing how much each image was corrected
 
+## Aligning two images from the command line
+
+`scripts/align_two_images.py` registers a moving image to a reference image
+(rigid + non-rigid) and writes the warped result as a pyramidal OME-TIFF.
+
+```bash
+.venv/bin/python scripts/align_two_images.py \
+    --reference /path/to/reference.ome.tif \
+    --image /path/to/moving.ome.tif \
+    --output-dir /path/to/output
+```
+
+Only page 0 of each input is used (e.g. the DAPI channel of a multichannel
+`.ome.tif`), and 16-bit inputs are converted to 8-bit.
+
+### Outputs
+
+In `--output-dir`:
+
+- `aligned.ome.tif`: two-page OME-TIFF, page 0 is the moving image warped onto the
+  reference, page 1 is the reference.
+- `registration/`: valis's working files, including `matches/` (keypoint-match
+  visualizations, also written for a failed attempt) and the processed images and masks.
+- An 8-bit copy of the reference, and the moving image (a symlink, or a rotated/flipped
+  copy if the orientation check corrected it).
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--image-stain`, `--reference-stain` | `auto` | Preprocessor for each image: `he-hematoxylin`, `he-hematoxylin-raw`, `he-hematoxylin-sparse`, `fluorescence`, `inverted-fluorescence`, `od`, `colorful-standardizer`, `luminosity`. `auto` picks `he-hematoxylin` for RGB and `fluorescence` / `inverted-fluorescence` for single-band images, based on brightness. |
+| `--max-processed-image-dim-px` | `2048` | Longest side used for feature detection and non-rigid registration. Never exceeds the images' own size. |
+| `--min-rigid-matches` | `30` | Abort with an error if the first matching pass finds fewer matches than this. |
+| `--orientation-margin` | `0.0` | Minimum score margin required before the orientation check rotates or flips the moving image. |
+| `--no-script-orientation` | off | Skip the script's orientation check and let valis handle reflections. |
+| `--detector` | `disk` | Feature detector: `disk` or `dedode`. |
+| `--max-keypoints` | `7500` | Maximum keypoints per image. |
+| `--ransac-thresh` | `7` | Outlier-filter reprojection threshold, in pixels. |
+| `--filter-method` | `magsac` | Outlier filter for matches: `magsac` or `ransac`. |
+
+Matching always uses LightGlue. `--detector`, `--max-keypoints`, `--ransac-thresh` and
+`--filter-method` are the same controls as the web app's detector/matcher panel. If
+none is given, valis's default matcher is used.
+
+If `he-hematoxylin` gets too few matches, the script automatically retries with the
+sparse hematoxylin extractor over several parameter settings before giving up.
+
 ## Interactive alignment web app
 
 An interactive web app lets you tune preprocessing per image and see DISK+LightGlue
@@ -40,9 +87,11 @@ uv sync --extra web
 Workflow: **Open images…** browses `--data-root` (sandboxed) to pick a reference and a
 moving `.ome.tif`; each panel has a preprocessor dropdown + parameter sliders and a
 shared detector/matcher control block. **Run Keypoint Detection** overlays the live
-LightGlue matches; **Run Alignment** runs the full pipeline and opens the aligned
-`aligned.ome.tif` in an OpenSeadragon viewer (via the bundled GeoTIFFTileSource plugin,
-which reads the pyramidal TIFF directly — no tile export).
+LightGlue matches; **Run Alignment** runs the same pipeline as the CLI, using the
+panel's settings, and opens `aligned.ome.tif` in an OpenSeadragon viewer. The viewer
+shows the aligned moving image in green and the reference in magenta, so aligned
+tissue appears white and misalignment appears as colored fringes. It uses the bundled
+GeoTIFFTileSource plugin, which reads the pyramidal TIFF directly (no tile export).
 
 The shared preprocessing/registration logic lives in `valis.interactive` (used by both
 this app and `scripts/align_two_images.py`).
@@ -51,6 +100,11 @@ this app and `scripts/align_two_images.py`).
 
 Python will segfault is this project (`valis`) is not imported first before any other pytorch-related import.
 Don't ask me why!
+
+DISK feature detection needs a lot of memory on CPU, and the need grows steeply with
+image size. A full alignment of the ~1800px example images (processed at ~2000px)
+exhausted a 36GB machine. Start with a lower `--max-processed-image-dim-px`, or
+downsampled copies of the images, when trying out a new pair.
 
 License
 -------

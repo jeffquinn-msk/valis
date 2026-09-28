@@ -97,6 +97,17 @@ def _thumb_for_processor(session: _Session, side: str, processor: str, size: int
     return session.thumbs(side, size)[kind]
 
 
+def _matcher_kwargs(matcher_cfg):
+    """Normalize the frontend's matcher controls into ``build_matcher`` kwargs."""
+    cfg = matcher_cfg or {}
+    return {
+        "detector": cfg.get("detector", "disk"),
+        "max_keypoints": int(cfg.get("max_keypoints", 7500)),
+        "ransac_thresh": float(cfg.get("ransac_thresh", 7)),
+        "filter_method": cfg.get("filter_method", "magsac"),
+    }
+
+
 def _run_processor(session, side, processor, params, size):
     if processor not in processors.PROCESSOR_REGISTRY:
         raise HTTPException(status_code=400, detail=f"unknown processor {processor!r}")
@@ -189,7 +200,6 @@ def api_match(session_id: str, payload: dict = Body(...)):
     size = int(payload.get("size", DEFAULT_SIZE))
     img_cfg = payload.get("image", {})
     ref_cfg = payload.get("reference", {})
-    matcher_cfg = payload.get("matcher", {})
     try:
         img_proc = _run_processor(
             session,
@@ -212,12 +222,7 @@ def api_match(session_id: str, payload: dict = Body(...)):
 
     try:
         kp1, kp2, n_total, n_filtered = matching.detect_and_match(
-            img_proc,
-            ref_proc,
-            detector=matcher_cfg.get("detector", "disk"),
-            max_keypoints=int(matcher_cfg.get("max_keypoints", 7500)),
-            ransac_thresh=float(matcher_cfg.get("ransac_thresh", 7)),
-            filter_method=matcher_cfg.get("filter_method", "magsac"),
+            img_proc, ref_proc, **_matcher_kwargs(payload.get("matcher"))
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"matching failed: {e}")
@@ -231,7 +236,9 @@ def api_match(session_id: str, payload: dict = Body(...)):
     }
 
 
-def _run_alignment_job(job_id, session, img_cfg, ref_cfg, max_dim, min_matches):
+def _run_alignment_job(
+    job_id, session, img_cfg, ref_cfg, matcher_cfg, max_dim, min_matches
+):
     out_dir = os.path.join(WORK_ROOT, job_id)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -255,6 +262,7 @@ def _run_alignment_job(job_id, session, img_cfg, ref_cfg, max_dim, min_matches):
             reference_params=ref_cfg.get("params", {}),
             max_processed_image_dim_px=int(max_dim),
             min_rigid_matches=int(min_matches),
+            matcher_cfg=matcher_cfg,
             progress_cb=progress_cb,
         )
         with _jobs_lock:
@@ -291,6 +299,7 @@ def api_align(session_id: str, payload: dict = Body(...)):
         session,
         payload.get("image", {}),
         payload.get("reference", {}),
+        _matcher_kwargs(payload.get("matcher")),
         payload.get("max_dim", 2048),
         payload.get("min_matches", 30),
     )
@@ -340,3 +349,9 @@ def index():
 
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# geotiff-tilesource loads its tile-decoding worker (and the worker's codec
+# chunks) from the absolute path /assets/..., so serve its dist/assets there.
+_PLUGIN_ASSETS_DIR = os.path.join(STATIC_DIR, "vendor", "assets")
+if os.path.isdir(_PLUGIN_ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=_PLUGIN_ASSETS_DIR), name="assets")

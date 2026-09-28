@@ -174,3 +174,95 @@ def test_result_supports_range_requests(client, data_root, monkeypatch):
     assert r.status_code == 206
     assert "content-range" in {k.lower() for k in r.headers}
     assert len(r.content) == 100
+
+
+def test_align_forwards_matcher_settings(client, monkeypatch):
+    """The tuned detector/matcher controls must reach the full alignment, not
+    just the live preview."""
+    import time
+
+    captured = {}
+
+    def fake_run_alignment(**kwargs):
+        captured.update(kwargs)
+        return "/nonexistent/aligned.ome.tif"
+
+    monkeypatch.setattr(webapp_app.pipeline, "run_alignment", fake_run_alignment)
+    sid = client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
+    ).json()["session_id"]
+    matcher = {
+        "detector": "dedode",
+        "max_keypoints": 2048,
+        "ransac_thresh": 5,
+        "filter_method": "ransac",
+    }
+    job_id = client.post(
+        f"/api/align/{sid}",
+        json={
+            "image": {"processor": "od", "params": {}},
+            "reference": {"processor": "fluorescence", "params": {}},
+            "matcher": matcher,
+        },
+    ).json()["job_id"]
+
+    for _ in range(100):
+        status = client.get(f"/api/align/{job_id}/status").json()
+        if status["state"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+    assert status["state"] == "done", status
+    assert captured["matcher_cfg"] == matcher
+
+
+def test_build_matcher_uses_requested_settings():
+    from valis import feature_detectors, feature_matcher
+    from valis.interactive import pipeline
+
+    mat = pipeline.build_matcher(
+        detector="disk", max_keypoints=1024, ransac_thresh=5, filter_method="ransac"
+    )
+    assert isinstance(mat, feature_matcher.LightGlueMatcher)
+    assert isinstance(mat.feature_detector, feature_detectors.DiskFD)
+    assert mat.match_filter_method == feature_matcher.RANSAC_NAME
+    assert mat.ransac_thresh == 5
+    # "none" is preview-only; the matcher itself still filters with MAGSAC.
+    none_mat = pipeline.build_matcher(filter_method="none")
+    assert none_mat.match_filter_method == feature_matcher.USAC_MAGSAC_NAME
+
+
+def test_geotiff_plugin_worker_is_served(client):
+    """geotiff-tilesource fetches its decoding worker from the absolute path
+    /assets/...; without it the result viewer opens but never draws tiles."""
+    import glob
+
+    workers = glob.glob(
+        os.path.join(webapp_app.STATIC_DIR, "vendor", "assets", "tiff.worker-*.js")
+    )
+    assert workers, "vendored geotiff-tilesource worker is missing"
+    r = client.get(f"/assets/{os.path.basename(workers[0])}")
+    assert r.status_code == 200
+    assert "javascript" in r.headers["content-type"]
+
+
+def test_lightglue_filter_uses_ransac_thresh(monkeypatch):
+    """LightGlueMatcher must pass its ransac_thresh to the outlier filter
+    (it used to silently use the default of 7)."""
+    from valis import feature_matcher
+    from valis.webapp import matching
+
+    seen = []
+    real = feature_matcher.filter_matches_ransac
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("ransac_val"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(feature_matcher, "filter_matches_ransac", spy)
+    rng = np.random.default_rng(7)
+    img = rng.integers(0, 255, size=(256, 256), dtype=np.uint8)
+    matching.detect_and_match(
+        img, img.copy(), max_keypoints=512, ransac_thresh=3, filter_method="ransac"
+    )
+    assert seen and all(v == 3 for v in seen), seen
