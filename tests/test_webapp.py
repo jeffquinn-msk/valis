@@ -193,6 +193,7 @@ def test_align_forwards_matcher_settings(client, monkeypatch):
         json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
     ).json()["session_id"]
     matcher = {
+        "matcher": "loma-b",
         "detector": "dedode",
         "max_keypoints": 2048,
         "ransac_thresh": 5,
@@ -230,6 +231,18 @@ def test_build_matcher_uses_requested_settings():
     # "none" is preview-only; the matcher itself still filters with MAGSAC.
     none_mat = pipeline.build_matcher(filter_method="none")
     assert none_mat.match_filter_method == feature_matcher.USAC_MAGSAC_NAME
+
+
+def test_loma_matcher_rejects_other_features():
+    """LoMa was trained on DaD + DeDoDe-G descriptors; pairing it with any
+    other detector must fail loudly rather than produce garbage matches."""
+    from valis import feature_detectors, feature_matcher
+    from valis.interactive import pipeline
+
+    with pytest.raises(TypeError, match="LoMaFD"):
+        feature_matcher.LoMaMatcher(feature_detectors.DiskFD(num_features=512))
+    with pytest.raises(ValueError, match="unknown matcher"):
+        pipeline.build_detector(matcher="superglue")
 
 
 def test_geotiff_plugin_worker_is_served(client):

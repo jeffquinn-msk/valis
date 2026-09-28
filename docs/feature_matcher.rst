@@ -25,6 +25,12 @@ LightGlueMatcher
 .. autoclass:: valis.feature_matcher::LightGlueMatcher
     :members: __init__, match_images
 
+LoMaMatcher
+------------
+.. autoclass:: valis.feature_matcher::LoMaMatcher
+    :members: __init__
+    :show-inheritance:
+
 SuperPointAndGlue
 ------------------
 .. autoclass:: valis.feature_matcher::SuperPointAndGlue

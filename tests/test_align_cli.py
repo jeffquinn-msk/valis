@@ -33,11 +33,17 @@ def test_matcher_flags_fill_unset_from_schema_defaults(cli):
         _parse(cli, "--detector", "dedode", "--ransac-thresh", "5")
     )
     assert cfg == {
+        "matcher": "lightglue",
         "detector": "dedode",
         "max_keypoints": 7500,
         "ransac_thresh": 5.0,
         "filter_method": "magsac",
     }
+
+
+def test_matcher_flag_selects_loma(cli):
+    cfg = cli.matcher_cfg_from_args(_parse(cli, "--matcher", "loma-b"))
+    assert cfg["matcher"] == "loma-b"
 
 
 def test_filter_method_rejects_preview_only_none(cli):

@@ -75,8 +75,18 @@ MATCH_FILTER_NAMES = {
 # ---------------------------------------------------------------------------
 
 
-def build_detector(detector: str = "disk", max_keypoints: int = 7500):
-    """Build the feature detector named in ``processors.MATCHER_SCHEMA``."""
+def build_detector(
+    detector: str = "disk", max_keypoints: int = 7500, matcher: str = "lightglue"
+):
+    """Build the feature detector named in ``processors.MATCHER_SCHEMA``.
+
+    LoMa only works with its own DaD + DeDoDe-G features, so
+    ``matcher="loma-b"`` ignores ``detector``.
+    """
+    if matcher == "loma-b":
+        return feature_detectors.LoMaFD(num_features=int(max_keypoints))
+    if matcher != "lightglue":
+        raise ValueError(f"unknown matcher: {matcher!r}")
     if detector == "disk":
         return feature_detectors.DiskFD(num_features=int(max_keypoints))
     if detector == "dedode":
@@ -89,17 +99,24 @@ def build_matcher(
     max_keypoints: int = 7500,
     ransac_thresh: float = 7,
     filter_method: str = "magsac",
+    matcher: str = "lightglue",
     feature_detector=None,
 ):
-    """Build a LightGlue matcher from the ``processors.MATCHER_SCHEMA`` knobs.
+    """Build a LightGlue or LoMa matcher from the ``processors.MATCHER_SCHEMA``
+    knobs.
 
     Shared by the web app's live preview and :func:`run_alignment`, so the
     full registration matches with the same settings the user tuned.
     ``feature_detector`` reuses an existing detector instead of building one.
     """
     if feature_detector is None:
-        feature_detector = build_detector(detector, max_keypoints)
-    return feature_matcher.LightGlueMatcher(
+        feature_detector = build_detector(detector, max_keypoints, matcher)
+    matcher_cls = (
+        feature_matcher.LoMaMatcher
+        if matcher == "loma-b"
+        else feature_matcher.LightGlueMatcher
+    )
+    return matcher_cls(
         feature_detector=feature_detector,
         match_filter_method=MATCH_FILTER_NAMES.get(
             filter_method, feature_matcher.USAC_MAGSAC_NAME

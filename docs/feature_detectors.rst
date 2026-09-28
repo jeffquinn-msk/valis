@@ -25,6 +25,11 @@ DeDoDe
 .. autoclass:: valis.feature_detectors::DeDoDeFD
     :show-inheritance:
 
+LoMa (DaD + DeDoDe-G)
+----------------------
+.. autoclass:: valis.feature_detectors::LoMaFD
+    :show-inheritance:
+
 KorniaFD
 ---------
 .. autoclass:: valis.feature_detectors::KorniaFD

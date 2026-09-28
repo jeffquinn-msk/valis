@@ -427,6 +427,12 @@ PARAM_SCHEMA = {
 
 # Global detector/matcher controls (not per image).
 MATCHER_SCHEMA = {
+    # "loma-b" uses its own DaD + DeDoDe-G features and ignores "detector".
+    "matcher": {
+        "type": "enum",
+        "options": ["lightglue", "loma-b"],
+        "default": "lightglue",
+    },
     "detector": {"type": "enum", "options": ["disk", "dedode"], "default": "disk"},
     "max_keypoints": {
         "type": "int",

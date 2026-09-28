@@ -1521,7 +1521,7 @@ class LightGlueMatcher(Matcher):
 
         if not _TORCH_AVAILABLE:
             raise ImportError(
-                "LightGlueMatcher requires torch and kornia. "
+                f"{self.__class__.__name__} requires torch and kornia. "
                 "Install with: pip install 'valis-wsi[dl]'"
             )
         if device is None:
@@ -1568,14 +1568,42 @@ class LightGlueMatcher(Matcher):
         doc="Get and set feature detector. Setting creates a new LightGlueMatcher with associated weights",
     )
 
+    def _match_kp_desc(self, kp1_xy, desc1, hw1, kp2_xy, desc2, hw2):
+        """Run the learned matcher on two sets of keypoints/descriptors.
+
+        Returns
+        -------
+        match_distances : ndarray
+            Distance (lower is better) for each of the M matches
+
+        idxs : ndarray
+            (M, 2) array of [index into kp1_xy, index into kp2_xy]
+
+        """
+        t_kp1 = torch.from_numpy(kp1_xy).to(self.device)
+        t_desc1 = torch.from_numpy(desc1).to(self.device)
+        t_kp2 = torch.from_numpy(kp2_xy).to(self.device)
+        t_desc2 = torch.from_numpy(desc2).to(self.device)
+        with torch.inference_mode():
+            lafs1 = kornia.feature.laf_from_center_scale_ori(
+                t_kp1[None], torch.ones(1, len(t_kp1), 1, 1, device=self.device)
+            )
+            lafs2 = kornia.feature.laf_from_center_scale_ori(
+                t_kp2[None], torch.ones(1, len(t_kp2), 1, 1, device=self.device)
+            )
+            match_distances, idxs = self.lg_matcher(
+                t_desc1, t_desc2, lafs1, lafs2, hw1=hw1, hw2=hw2
+            )
+
+        return match_distances.detach().cpu().numpy(), idxs.detach().cpu().numpy()
+
     def estimate_rotation_brute_force(
-        self, desc1, kp1, lafs1, hw1, moving_img, n_angles=4
+        self, desc1, kp1, hw1, moving_img, n_angles=4, *args, **kwargs
     ):
         """
         Use a rotation invarianet feature descriptor to estimate angle to rotate img2 to align with img1
         """
 
-        t_desc1 = torch.from_numpy(desc1)
         angle_step = 360 // n_angles
         rotations = np.arange(0, 360, angle_step)
 
@@ -1592,15 +1620,9 @@ class LightGlueMatcher(Matcher):
             r_kp2, r_desc2 = self.feature_detector.detect_and_compute(rotated)
             r_hw2 = rotated.shape[0:2]
 
-            t_kp2 = torch.from_numpy(r_kp2).to(self.device)
-            t_desc2 = torch.from_numpy(r_desc2).to(self.device)
-            with torch.inference_mode():
-                lafs2 = kornia.feature.laf_from_center_scale_ori(
-                    t_kp2[None], torch.ones(1, len(t_kp2), 1, 1, device=self.device)
-                )
-                match_distances, idxs = self.lg_matcher(
-                    t_desc1, t_desc2, lafs1, lafs2, hw1=hw1, hw2=r_hw2
-                )
+            match_distances, idxs = self._match_kp_desc(
+                kp1, desc1, hw1, r_kp2, r_desc2, r_hw2
+            )
 
             _kp1 = kp1[idxs[:, 0], :]
             _kp2 = r_kp2[idxs[:, 1], :]
@@ -1609,7 +1631,9 @@ class LightGlueMatcher(Matcher):
             )
             r_n_matches = len(good_idx)
             all_match_counts[i] = r_n_matches
-            rot_min_mean_distances = match_distances.min().detach().item()
+            rot_min_mean_distances = (
+                float(np.min(match_distances)) if len(match_distances) else np.inf
+            )
             all_mean_distances[i] = rot_min_mean_distances
 
             if rot_min_mean_distances < min_mean_distance:
@@ -1679,18 +1703,11 @@ class LightGlueMatcher(Matcher):
         if kp1_xy is None and desc1 is None:
             kp1_xy, desc1 = self.feature_detector.detect_and_compute(img1)
 
-        t_kp1 = torch.from_numpy(kp1_xy).to(self.device)
-        t_desc1 = torch.from_numpy(desc1).to(self.device)
-        with torch.inference_mode():
-            lafs1 = kornia.feature.laf_from_center_scale_ori(
-                t_kp1[None], torch.ones(1, len(t_kp1), 1, 1, device=self.device)
-            )
-
         if kp2_xy is None and desc2 is None:
             if rotation_deg is None:
                 if brute_force_angle:
                     rotation_deg = self.estimate_rotation_brute_force(
-                        desc1=desc1, hw1=hw1, kp1=kp1_xy, lafs1=lafs1, moving_img=img2
+                        desc1=desc1, hw1=hw1, kp1=kp1_xy, moving_img=img2
                     )
                 else:
                     rotation_deg = self.estimate_rotation(
@@ -1713,19 +1730,9 @@ class LightGlueMatcher(Matcher):
             rot_tform = transform.SimilarityTransform()
             r_hw2 = warp_tools.get_shape(img2)[0:2]
 
-        t_kp2 = torch.from_numpy(kp2_xy).to(self.device)
-        t_desc2 = torch.from_numpy(desc2).to(self.device)
-
-        with torch.inference_mode():
-            lafs2 = kornia.feature.laf_from_center_scale_ori(
-                t_kp2[None], torch.ones(1, len(t_kp2), 1, 1, device=self.device)
-            )
-
-            match_distances, idxs = self.lg_matcher(
-                t_desc1, t_desc2, lafs1, lafs2, hw1=hw1, hw2=r_hw2
-            )
-            match_distances = match_distances.detach().numpy()
-            idxs = idxs.detach().numpy()
+        match_distances, idxs = self._match_kp_desc(
+            kp1_xy, desc1, hw1, r_kp2, r_desc2, r_hw2
+        )
 
         desc1_match_idx = idxs[:, 0]
         matched_desc1 = desc1[desc1_match_idx, :]
@@ -1836,3 +1843,100 @@ class LightGlueMatcher(Matcher):
         )
 
         return match_info12, filtered_match_info12, match_info21, filtered_match_info21
+
+
+class LoMaMatcher(LightGlueMatcher):
+    """
+    LoMa-B feature matcher. A drop-in alternative to ``LightGlueMatcher``
+    (same architecture family, retrained), but it must be paired with
+    ``feature_detectors.LoMaFD``, the DaD + DeDoDe-G features it was trained on.
+    Defaults to that detector if none is given.
+
+    Citation
+    ---------
+    David Nordström, Johan Edstedt, et al. LoMa: Local Feature Matching
+    Revisited. ECCV 2026.
+
+    """
+
+    def __init__(
+        self,
+        feature_detector=None,
+        match_filter_method=DEFAULT_MATCH_FILTER,
+        ransac_thresh=DEFAULT_RANSAC,
+        filter_threshold=None,
+        *args,
+        **kwargs,
+    ):
+        """
+        Parameters
+        ----------
+        filter_threshold : float, optional
+            Minimum match confidence. Default is LoMa's own (0.1).
+        """
+        self.filter_threshold = filter_threshold
+        if feature_detector is None and _TORCH_AVAILABLE:
+            feature_detector = feature_detectors.LoMaFD()
+        super().__init__(
+            feature_detector=feature_detector,
+            match_filter_method=match_filter_method,
+            ransac_thresh=ransac_thresh,
+            *args,
+            **kwargs,
+        )
+
+    def set_fd(self, feature_detector):
+        if not isinstance(feature_detector, feature_detectors.LoMaFD):
+            raise TypeError(
+                f"{self.__class__.__name__} requires a "
+                f"{feature_detectors.LoMaFD.__name__}, got "
+                f"{feature_detector.__class__.__name__}"
+            )
+        self._feature_detector = feature_detector
+        self.feature_name = feature_detector.__class__.__name__
+        self.metric_name = "loma"
+        # Matcher weights live in the detector's LoMa model
+        self.device = feature_detector.device
+
+    feature_detector = property(
+        fget=LightGlueMatcher.get_fd,
+        fset=set_fd,
+        doc="Get and set feature detector. Must be a LoMaFD, whose model holds the matcher weights",
+    )
+
+    def _match_kp_desc(self, kp1_xy, desc1, hw1, kp2_xy, desc2, hw2):
+        if len(kp1_xy) == 0 or len(kp2_xy) == 0:
+            return np.empty(0, dtype=np.float32), np.empty((0, 2), dtype=int)
+
+        from .loma_models import filter_matches as loma_filter_matches
+
+        def _to_normalized(kp_xy, hw):
+            h, w = hw
+            # Inverse of LoMaFD's conversion to pixel-center coordinates
+            norm = np.column_stack(
+                [2 * (kp_xy[:, 0] + 0.5) / w - 1, 2 * (kp_xy[:, 1] + 0.5) / h - 1]
+            )
+            return torch.from_numpy(norm).float()[None]
+
+        model = self.feature_detector.model
+        threshold = (
+            model.cfg.filter_threshold
+            if self.filter_threshold is None
+            else self.filter_threshold
+        )
+        with torch.inference_mode():
+            scores = model(
+                _to_normalized(kp1_xy, hw1),
+                _to_normalized(kp2_xy, hw2),
+                torch.from_numpy(np.asarray(desc1, dtype=np.float32))[None],
+                torch.from_numpy(np.asarray(desc2, dtype=np.float32))[None],
+            )["scores"].float()
+            m0, _, mscores0, _ = loma_filter_matches(scores, threshold)
+
+        m0 = m0[0].cpu().numpy()
+        mscores0 = mscores0[0].cpu().numpy()
+        idx1 = np.where(m0 > -1)[0]
+        idxs = np.column_stack([idx1, m0[idx1]])
+        match_distances = 1 - mscores0[idx1]
+
+        return match_distances, idxs

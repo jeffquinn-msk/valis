@@ -101,6 +101,7 @@ def _matcher_kwargs(matcher_cfg):
     """Normalize the frontend's matcher controls into ``build_matcher`` kwargs."""
     cfg = matcher_cfg or {}
     return {
+        "matcher": cfg.get("matcher", "lightglue"),
         "detector": cfg.get("detector", "disk"),
         "max_keypoints": int(cfg.get("max_keypoints", 7500)),
         "ransac_thresh": float(cfg.get("ransac_thresh", 7)),
