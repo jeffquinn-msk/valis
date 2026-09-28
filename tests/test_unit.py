@@ -24,6 +24,13 @@ def _iter_valis_modules():
         # superglue_models pulls in heavy DL deps that are an optional install.
         if info.name.startswith("valis.superglue_models"):
             continue
+        # webapp needs the optional [web] extra (fastapi/uvicorn); skip it when
+        # those aren't installed so the core import smoke test stays runnable.
+        if info.name.startswith("valis.webapp"):
+            try:
+                import fastapi  # noqa: F401
+            except ImportError:
+                continue
         yield info.name
 
 
