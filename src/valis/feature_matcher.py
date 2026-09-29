@@ -1371,7 +1371,7 @@ class SuperGlueMatcher(Matcher):
 
         sg_pred = self.sg_matcher(data)
 
-        sg_pred = {k: v[0].detach().numpy() for k, v in sg_pred.items()}
+        sg_pred = {k: v[0].detach().cpu().numpy() for k, v in sg_pred.items()}
         sg_pred.update(data)
 
         # Keep the matching keypoints and descriptors
