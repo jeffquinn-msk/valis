@@ -209,11 +209,36 @@ def test_result_supports_range_requests(client, data_root, monkeypatch):
     assert len(r.content) == 100
 
 
-def test_align_forwards_matcher_settings(client, monkeypatch):
-    """The tuned detector/matcher controls must reach the full alignment, not
-    just the live preview."""
+def _fake_detect_and_match(n=40):
+    def fake(img1, img2, **kwargs):
+        rng = np.random.default_rng(1)
+        kp1 = rng.uniform(0, min(img1.shape[:2]) - 1, size=(n, 2))
+        return kp1, kp1 * 1.0, n + 10, n
+
+    return fake
+
+
+def _wait_for_job(client, job_id):
     import time
 
+    for _ in range(100):
+        status = client.get(f"/api/align/{job_id}/status").json()
+        if status["state"] in ("done", "error"):
+            return status
+        time.sleep(0.05)
+    return status
+
+
+def _new_session(client):
+    return client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
+    ).json()["session_id"]
+
+
+def test_align_uses_exactly_the_displayed_matches(client, monkeypatch):
+    """Alignment must run on the preview's own matches, preprocessing and
+    per-image resolution -- nothing recomputed differently under the hood."""
     captured = {}
 
     def fake_run_alignment(**kwargs):
@@ -221,10 +246,10 @@ def test_align_forwards_matcher_settings(client, monkeypatch):
         return "/nonexistent/aligned.ome.tif"
 
     monkeypatch.setattr(webapp_app.pipeline, "run_alignment", fake_run_alignment)
-    sid = client.post(
-        "/api/session",
-        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
-    ).json()["session_id"]
+    monkeypatch.setattr(
+        webapp_app.matching, "detect_and_match", _fake_detect_and_match()
+    )
+    sid = _new_session(client)
     matcher = {
         "matcher": "loma-b",
         "detector": "dedode",
@@ -232,22 +257,140 @@ def test_align_forwards_matcher_settings(client, monkeypatch):
         "ransac_thresh": 5,
         "filter_method": "ransac",
     }
+    geometry = {"flip_h": False, "flip_v": True, "tx": 5, "ty": -3}
+    match = client.post(
+        f"/api/match/{sid}",
+        json={
+            "image": {
+                "processor": "od", "params": {}, "geometry": geometry, "size": 128,
+            },
+            "reference": {"processor": "fluorescence", "params": {}, "size": 96},
+            "matcher": matcher,
+            "valis_resolution": 1024,
+        },
+    ).json()
+    assert max(match["image_size"]) == 128
+    assert max(match["reference_size"]) == 96
+    assert match["prealigned"]["n_filtered"] == 40
+    assert match["prealigned"]["valis_resolution"] == 1024
+
     job_id = client.post(
         f"/api/align/{sid}",
+        json={"match_id": match["match_id"], "min_matches": 10},
+    ).json()["job_id"]
+    status = _wait_for_job(client, job_id)
+    assert status["state"] == "done", status
+
+    preview = captured["preview_match"]
+    np.testing.assert_allclose(preview.kp_moving, match["matches"]["kp1"])
+    np.testing.assert_allclose(preview.kp_reference, match["matches"]["kp2"])
+    assert max(preview.moving_img.shape[:2]) == 128
+    assert max(preview.reference_img.shape[:2]) == 96
+    assert captured["matcher_cfg"] == matcher
+    assert captured["image_geometry"] == geometry
+    assert captured["image_stain"] == "od"
+    assert captured["max_processed_image_dim_px"] == 1024
+    assert captured["min_rigid_matches"] == 10
+
+
+def test_align_requires_a_displayed_match(client):
+    sid = _new_session(client)
+    res = client.post(f"/api/align/{sid}", json={"match_id": "nope"})
+    assert res.status_code == 400
+
+
+def test_align_refuses_below_min_matches(client, monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        webapp_app.pipeline, "run_alignment", lambda **kw: called.append(kw)
+    )
+    monkeypatch.setattr(
+        webapp_app.matching, "detect_and_match", _fake_detect_and_match(n=5)
+    )
+    sid = _new_session(client)
+    match = client.post(
+        f"/api/match/{sid}",
         json={
             "image": {"processor": "od", "params": {}},
             "reference": {"processor": "fluorescence", "params": {}},
-            "matcher": matcher,
+            "size": 128,
         },
+    ).json()
+    job_id = client.post(
+        f"/api/align/{sid}", json={"match_id": match["match_id"], "min_matches": 30}
     ).json()["job_id"]
+    status = _wait_for_job(client, job_id)
+    assert status["state"] == "error"
+    assert "5 matches" in status["message"]
+    assert not called
 
-    for _ in range(100):
-        status = client.get(f"/api/align/{job_id}/status").json()
-        if status["state"] in ("done", "error"):
-            break
-        time.sleep(0.05)
-    assert status["state"] == "done", status
-    assert captured["matcher_cfg"] == matcher
+
+def test_prealigned_check_warps_moving_into_reference_frame(
+    client, data_root, monkeypatch
+):
+    """With the same slide on both sides and identity matches, the pre-aligned
+    moving image valis would see must equal the reference."""
+    calls = []
+
+    def fake(img1, img2, **kwargs):
+        calls.append((img1, img2))
+        xy = np.array([[10.0, 10.0], [100.0, 20.0], [30.0, 110.0], [90.0, 100.0]])
+        return xy, xy.copy(), 4, 4
+
+    monkeypatch.setattr(webapp_app.matching, "detect_and_match", fake)
+    sid = client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "moving.ome.tif"},
+    ).json()["session_id"]
+    res = client.post(
+        f"/api/match/{sid}",
+        json={
+            "image": {"processor": "luminosity", "params": {}},
+            "reference": {"processor": "luminosity", "params": {}},
+            "size": 128,
+            "valis_resolution": 200,
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["prealigned"]["size"] == [167, 200]
+    mov, ref = calls[1]
+    assert mov.shape == ref.shape
+    inner = (slice(2, -2), slice(2, -2))
+    diff = np.abs(mov[inner].astype(float) - ref[inner].astype(float))
+    assert diff.mean() < 2.0, diff.mean()
+
+
+def test_preview_affine_moves_pixels_to_their_matches():
+    """The preview fit, lifted to full res and applied with vips, must land
+    a moving-image feature on its reference position."""
+    import pyvips
+    from valis.interactive import pipeline
+
+    # Thumbnails at 1/4 scale; reference = moving rotated 10 deg + shifted.
+    T = pipeline.transform.SimilarityTransform(
+        rotation=np.deg2rad(10), translation=(6, -3)
+    )
+    mov_xy = np.random.default_rng(3).uniform(10, 40, size=(30, 2))
+    preview = pipeline.PreviewMatch(
+        kp_moving=mov_xy,
+        kp_reference=T(mov_xy),
+        moving_img=np.zeros((50, 60), np.uint8),
+        reference_img=np.zeros((50, 60), np.uint8),
+    )
+    A, T_fit = pipeline.preview_affine_full_res(preview, (240, 200), (240, 200))
+    np.testing.assert_allclose(T_fit, T.params, atol=1e-6)
+
+    img = np.zeros((200, 240), np.uint8)
+    img[99:102, 79:82] = 255  # 3x3 block centred on (80, 100)
+    warped = pipeline.apply_affine_pyvips(
+        pyvips.Image.new_from_memory(img.tobytes(), 240, 200, 1, "uchar"),
+        A,
+        (240, 200),
+    ).numpy()
+    assert warped.shape == (200, 240)
+    ys, xs = np.nonzero(warped > 64)
+    expected = pipeline.transform.AffineTransform(matrix=A)([[80, 100]])[0]
+    np.testing.assert_allclose([xs.mean(), ys.mean()], expected, atol=0.75)
 
 
 def test_build_matcher_uses_requested_settings():
@@ -345,37 +488,6 @@ def test_preprocess_applies_moving_geometry(client):
     np.testing.assert_array_equal(
         png("reference", {"flip_h": True}), png("reference", {})
     )
-
-
-def test_align_forwards_geometry(client, monkeypatch):
-    import time
-
-    captured = {}
-
-    def fake_run_alignment(**kwargs):
-        captured.update(kwargs)
-        return "/nonexistent/aligned.ome.tif"
-
-    monkeypatch.setattr(webapp_app.pipeline, "run_alignment", fake_run_alignment)
-    sid = client.post(
-        "/api/session",
-        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
-    ).json()["session_id"]
-    geometry = {"flip_h": False, "flip_v": True, "tx": 5, "ty": -3}
-    job_id = client.post(
-        f"/api/align/{sid}",
-        json={
-            "image": {"processor": "od", "params": {}, "geometry": geometry},
-            "reference": {"processor": "fluorescence", "params": {}},
-        },
-    ).json()["job_id"]
-    for _ in range(100):
-        status = client.get(f"/api/align/{job_id}/status").json()
-        if status["state"] in ("done", "error"):
-            break
-        time.sleep(0.05)
-    assert status["state"] == "done", status
-    assert captured["image_geometry"] == geometry
 
 
 def test_frontend_assets_revalidate(client):

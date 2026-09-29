@@ -86,6 +86,14 @@ select {
 }
 
 .params { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+#prealign-check {
+  margin-top: 20px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px;
+}
+#prealign-check h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+#prealign-img { display: block; max-width: 100%; max-height: 520px; margin: 10px 0; }
+.res-info { font-size: 12px; margin-top: 4px; min-height: 1em; }
+#align-controls .hint { font-size: 12px; margin: 4px 0 10px; }
 .param-row { display: flex; flex-direction: column; gap: 3px; }
 .param-row .param-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .param-row .param-label .val { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -96,11 +104,11 @@ select {
 #match-overlay { position: absolute; pointer-events: none; z-index: 5; left: 0; top: 0; }
 #tuning { position: relative; }
 
-#matcher-controls {
+#matcher-controls, #align-controls {
   margin-top: 20px; background: var(--panel); border: 1px solid var(--border);
   border-radius: 10px; padding: 14px;
 }
-#matcher-controls h3 { margin: 0 0 12px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+#matcher-controls h3, #align-controls h3 { margin: 0 0 12px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .matcher-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 @media (max-width: 720px) { .matcher-grid { grid-template-columns: repeat(2, 1fr); } .panels { flex-direction: column; } }
 

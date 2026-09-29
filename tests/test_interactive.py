@@ -73,7 +73,9 @@ def test_public_schema_is_json_serializable():
 
     schema = processors.public_schema()
     json.dumps(schema)  # must not raise (no class refs leak through)
-    assert set(schema) == {"processors", "matcher", "geometry"}
+    assert set(schema) == {
+        "processors", "matcher", "geometry", "resolution", "alignment"
+    }
 
 
 def test_thumbnail_helpers_downsample():

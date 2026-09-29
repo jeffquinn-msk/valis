@@ -4,6 +4,7 @@ Import ordering matters: ``valis`` (via ``valis.interactive``) is imported at
 module top, before anything pulls in torch, to avoid the exit-139 segfault.
 """
 
+import base64
 import csv
 import io
 import os
@@ -12,6 +13,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import cv2
 import numpy as np
 import pyvips
 from PIL import Image as PILImage
@@ -31,7 +33,8 @@ DATA_ROOT = os.environ.get("VALIS_WEBAPP_DATA_ROOT", os.getcwd())
 WORK_ROOT = os.environ.get(
     "VALIS_WEBAPP_WORK_ROOT", os.path.join(tempfile.gettempdir(), "valis_webapp")
 )
-DEFAULT_SIZE = 1024
+DEFAULT_SIZE = processors.RESOLUTION_SCHEMA["default"]
+MAX_STORED_MATCHES = 16
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -63,6 +66,17 @@ class _Session:
         self._vips = {}  # side -> pyvips.Image
         self._thumbs = {}  # (side, size) -> {"gray": arr, "rgb": arr}
         self._lock = threading.Lock()
+        # match_id -> everything a displayed match was computed from, so
+        # alignment runs on exactly what the user saw.
+        self.matches = {}
+
+    def store_match(self, record):
+        match_id = uuid.uuid4().hex
+        with self._lock:
+            self.matches[match_id] = record
+            while len(self.matches) > MAX_STORED_MATCHES:
+                self.matches.pop(next(iter(self.matches)))
+        return match_id
 
     def info(self, side):
         v = self._vips_for(side)
@@ -96,13 +110,17 @@ def _get_session(session_id) -> _Session:
     return s
 
 
-def _png_response(arr: np.ndarray) -> Response:
-    """Encode a uint8 numpy array (2-D gray or 3-D RGB) as a PNG response."""
+def _png_bytes(arr: np.ndarray) -> bytes:
     if arr.dtype != np.uint8:
         arr = np.clip(arr, 0, 255).astype(np.uint8)
     buf = io.BytesIO()
     PILImage.fromarray(arr).save(buf, format="PNG")
-    return Response(content=buf.getvalue(), media_type="image/png")
+    return buf.getvalue()
+
+
+def _png_response(arr: np.ndarray) -> Response:
+    """Encode a uint8 numpy array (2-D gray or 3-D RGB) as a PNG response."""
+    return Response(content=_png_bytes(arr), media_type="image/png")
 
 
 def _thumb_for_processor(session: _Session, side: str, processor: str, size: int):
@@ -121,6 +139,11 @@ def _matcher_kwargs(matcher_cfg):
         "ransac_thresh": float(cfg.get("ransac_thresh", 7)),
         "filter_method": cfg.get("filter_method", "magsac"),
     }
+
+
+def _side_size(cfg, payload):
+    """Working resolution for one side: its own ``size``, else the payload's."""
+    return int((cfg or {}).get("size", payload.get("size", DEFAULT_SIZE)))
 
 
 def _side_geometry(side, cfg):
@@ -144,6 +167,84 @@ def _run_processor(session, side, processor, params, size, geometry=None):
     return processors.run_processor_on_thumbnail(
         [cls, kwargs], thumb, session.paths[side]
     )
+
+
+def _process_array(session, side, processor, params, thumb):
+    """Run ``processor`` on an already-prepared raw thumbnail array."""
+    cls, base_kw = processors.PROCESSOR_REGISTRY[processor]
+    return processors.run_processor_on_thumbnail(
+        [cls, {**base_kw, **(params or {})}], thumb, session.paths[side]
+    )
+
+
+def _prealigned_check(session, img_cfg, ref_cfg, matcher_cfg, preview, valis_res):
+    """Match the way valis's rigid step will: moving image pre-aligned into
+    the reference frame, both at ``valis_res`` (longest side), then the same
+    processors and matcher as the preview.
+
+    Returns ``None`` if the preview has too few matches to fit the
+    pre-alignment, else a dict with the match result and the processed pair.
+    """
+    if len(preview.kp_moving) < 3:
+        return None
+    mov_info, ref_info = session.info("image"), session.info("reference")
+    mov_wh, ref_wh = (mov_info["w"], mov_info["h"]), (ref_info["w"], ref_info["h"])
+    A, _ = pipeline.preview_affine_full_res(preview, mov_wh, ref_wh)
+
+    ref_kind = processors.PROCESSOR_INPUT.get(ref_cfg["processor"], "gray")
+    mov_kind = processors.PROCESSOR_INPUT.get(img_cfg["processor"], "gray")
+    ref_raw = session.thumbs("reference", valis_res)[ref_kind]
+    out_h, out_w = ref_raw.shape[:2]
+
+    # Moving thumbnail at roughly the output's pixel size, so the warp
+    # neither throws detail away nor upsamples.
+    out_per_ref_px = max(out_h, out_w) / max(ref_wh)
+    lin_scale = float(np.sqrt(abs(np.linalg.det(A[:2, :2]))))
+    mov_size = int(
+        min(max(mov_wh), round(max(mov_wh) * out_per_ref_px * lin_scale))
+    )
+    mov_raw = session.thumbs("image", mov_size)[mov_kind]
+    mov_raw = processors.apply_geometry_array(mov_raw, img_cfg["geometry"])
+
+    # moving thumb -> full moving -> full reference -> reference thumb
+    M = (
+        np.linalg.inv(pipeline._thumb_to_full_M((out_h, out_w), ref_wh))
+        @ A
+        @ pipeline._thumb_to_full_M(mov_raw.shape[:2], mov_wh)
+    )
+    mov_warped = cv2.warpAffine(
+        mov_raw, M[:2], (out_w, out_h), flags=cv2.INTER_LINEAR, borderValue=0
+    )
+    mov_proc = _process_array(
+        session, "image", img_cfg["processor"], img_cfg.get("params"), mov_warped
+    )
+    ref_proc = _process_array(
+        session, "reference", ref_cfg["processor"], ref_cfg.get("params"), ref_raw
+    )
+    kp1, kp2, n_total, n_filtered = matching.detect_and_match(
+        mov_proc, ref_proc, **matcher_cfg
+    )
+    return {
+        "kp_moving": kp1,
+        "kp_reference": kp2,
+        "n_total": n_total,
+        "n_filtered": n_filtered,
+        "moving_img": mov_proc,
+        "reference_img": ref_proc,
+    }
+
+
+def _overlay_png_b64(moving: np.ndarray, reference: np.ndarray) -> str:
+    """Green = pre-aligned moving, magenta = reference (both processed)."""
+
+    def _u8(a):
+        a = a.astype(float)
+        lo, hi = a.min(), a.max()
+        return ((a - lo) / (hi - lo + 1e-9) * 255).astype(np.uint8)
+
+    m, r = _u8(moving), _u8(reference)
+    rgb = np.dstack([r, m, r])
+    return base64.b64encode(_png_bytes(rgb)).decode("ascii")
 
 
 # ---------------------------------------------------------------------------
@@ -225,49 +326,92 @@ def api_preprocess(session_id: str, side: str, payload: dict = Body(...)):
 @app.post("/api/match/{session_id}")
 def api_match(session_id: str, payload: dict = Body(...)):
     session = _get_session(session_id)
-    size = int(payload.get("size", DEFAULT_SIZE))
-    img_cfg = payload.get("image", {})
-    ref_cfg = payload.get("reference", {})
+    img_cfg = dict(payload.get("image", {}))
+    ref_cfg = dict(payload.get("reference", {}))
+    img_cfg["size"] = _side_size(img_cfg, payload)
+    ref_cfg["size"] = _side_size(ref_cfg, payload)
+    img_cfg["geometry"] = _side_geometry("image", img_cfg)
+    ref_cfg.pop("geometry", None)
+    matcher_cfg = _matcher_kwargs(payload.get("matcher"))
     try:
         img_proc = _run_processor(
             session,
             "image",
             img_cfg.get("processor"),
             img_cfg.get("params", {}),
-            size,
-            _side_geometry("image", img_cfg),
+            img_cfg["size"],
+            img_cfg["geometry"],
         )
         ref_proc = _run_processor(
             session,
             "reference",
             ref_cfg.get("processor"),
             ref_cfg.get("params", {}),
-            size,
+            ref_cfg["size"],
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"preprocess failed: {e}")
 
+    valis_res = int(
+        payload.get(
+            "valis_resolution",
+            processors.ALIGNMENT_SCHEMA["valis_resolution"]["default"],
+        )
+    )
     try:
         kp1, kp2, n_total, n_filtered = matching.detect_and_match(
-            img_proc, ref_proc, **_matcher_kwargs(payload.get("matcher"))
+            img_proc, ref_proc, **matcher_cfg
         )
+        preview = pipeline.PreviewMatch(
+            kp_moving=kp1,
+            kp_reference=kp2,
+            moving_img=img_proc,
+            reference_img=ref_proc,
+        )
+        prealigned = _prealigned_check(
+            session, img_cfg, ref_cfg, matcher_cfg, preview, valis_res
+        )
+    except pipeline.AlignmentError:
+        prealigned = None
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"matching failed: {e}")
 
-    return {
+    match_id = session.store_match(
+        {
+            "image": img_cfg,
+            "reference": ref_cfg,
+            "matcher": matcher_cfg,
+            "valis_resolution": valis_res,
+            "preview": preview,
+            "prealigned": prealigned,
+        }
+    )
+    out = {
+        "match_id": match_id,
         "matches": {"kp1": kp1.tolist(), "kp2": kp2.tolist()},
         "n_total": n_total,
         "n_filtered": n_filtered,
         "image_size": [img_proc.shape[1], img_proc.shape[0]],
         "reference_size": [ref_proc.shape[1], ref_proc.shape[0]],
+        "prealigned": None,
     }
+    if prealigned is not None:
+        h, w = prealigned["reference_img"].shape[:2]
+        out["prealigned"] = {
+            "n_total": prealigned["n_total"],
+            "n_filtered": prealigned["n_filtered"],
+            "size": [w, h],
+            "valis_resolution": valis_res,
+            "overlay_png": _overlay_png_b64(
+                prealigned["moving_img"], prealigned["reference_img"]
+            ),
+        }
+    return out
 
 
-def _run_alignment_job(
-    job_id, session, img_cfg, ref_cfg, matcher_cfg, max_dim, min_matches
-):
+def _run_alignment_job(job_id, session, match, min_matches):
     with _jobs_lock:
         out_dir = _jobs[job_id].get("out_dir") or os.path.join(WORK_ROOT, job_id)
     os.makedirs(out_dir, exist_ok=True)
@@ -281,7 +425,21 @@ def _run_alignment_job(
 
     with _jobs_lock:
         _jobs[job_id].update(state="running", stage="starting", progress=0.0)
+    img_cfg, ref_cfg, preview = match["image"], match["reference"], match["preview"]
     try:
+        prealigned = match["prealigned"]
+        if prealigned is None:
+            raise pipeline.AlignmentError(
+                f"The preview has {len(preview.kp_moving)} matches; at least 3 "
+                "are needed to pre-align the moving image."
+            )
+        n = prealigned["n_filtered"]
+        if n < min_matches:
+            raise pipeline.AlignmentError(
+                f"After pre-alignment the check finds {n} matches; valis's "
+                f"rigid step needs at least {min_matches} (the 'min matches' "
+                "setting)."
+            )
         aligned = pipeline.run_alignment(
             image_path=session.paths["image"],
             reference_path=session.paths["reference"],
@@ -289,11 +447,12 @@ def _run_alignment_job(
             image_stain=img_cfg.get("processor", "auto"),
             reference_stain=ref_cfg.get("processor", "auto"),
             image_params=img_cfg.get("params", {}),
-            image_geometry=_side_geometry("image", img_cfg),
+            image_geometry=img_cfg.get("geometry"),
             reference_params=ref_cfg.get("params", {}),
-            max_processed_image_dim_px=int(max_dim),
+            max_processed_image_dim_px=int(match["valis_resolution"]),
             min_rigid_matches=int(min_matches),
-            matcher_cfg=matcher_cfg,
+            matcher_cfg=match["matcher"],
+            preview_match=preview,
             progress_cb=progress_cb,
         )
         with _jobs_lock:
@@ -314,7 +473,22 @@ def _run_alignment_job(
 
 @app.post("/api/align/{session_id}")
 def api_align(session_id: str, payload: dict = Body(...)):
+    """Align starting from the matches of a previous ``/api/match`` call.
+
+    Those matches pre-align the moving image (coarse); valis then registers
+    it at the stored valis resolution. Preprocessing, geometry, matches and
+    resolution all come from the stored match, so the run starts from exactly
+    what the preview and the pre-aligned check showed.
+    """
     session = _get_session(session_id)
+    match = session.matches.get(payload.get("match_id"))
+    if match is None:
+        raise HTTPException(
+            status_code=400,
+            detail="run keypoint detection first; alignment uses its matches",
+        )
+    defaults = processors.ALIGNMENT_SCHEMA
+    min_matches = int(payload.get("min_matches", defaults["min_matches"]["default"]))
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         _jobs[job_id] = {
@@ -326,14 +500,7 @@ def api_align(session_id: str, payload: dict = Body(...)):
             "out_dir": os.path.join(WORK_ROOT, job_id),
         }
     _executor.submit(
-        _run_alignment_job,
-        job_id,
-        session,
-        payload.get("image", {}),
-        payload.get("reference", {}),
-        _matcher_kwargs(payload.get("matcher")),
-        payload.get("max_dim", 2048),
-        payload.get("min_matches", 30),
+        _run_alignment_job, job_id, session, match, min_matches
     )
     return {"job_id": job_id}
 

@@ -23,6 +23,8 @@
           <div class="canvas-wrap">
             <canvas class="preview" width="480" height="480"></canvas>
           </div>
+          <div class="params resolution"></div>
+          <div class="res-info muted"></div>
           <label class="ctrl">
             <span>Preprocessor</span>
             <select class="processor-select"></select>
@@ -37,6 +39,8 @@
           <div class="canvas-wrap">
             <canvas class="preview" width="480" height="480"></canvas>
           </div>
+          <div class="params resolution"></div>
+          <div class="res-info muted"></div>
           <label class="ctrl">
             <span>Preprocessor</span>
             <select class="processor-select"></select>
@@ -52,10 +56,33 @@
         <div class="matcher-grid"></div>
       </div>
 
+      <div id="align-controls">
+        <h3>Alignment</h3>
+        <p class="muted hint">The matches shown above pre-align the moving image
+          (coarse: fixes flips, rotation, offset). valis then runs its own rigid
+          + non-rigid registration at the valis resolution, with the same
+          preprocessing and matcher. Keypoint detection also runs that check:
+          the pre-aligned pair at the valis resolution, the start of valis's
+          rigid step. Its match count must reach min matches. Changing any
+          setting clears the matches; re-run keypoint detection before
+          aligning.</p>
+        <div class="matcher-grid align-grid"></div>
+      </div>
+
       <div class="actions">
         <button id="match-btn" disabled>Run Keypoint Detection</button>
         <button id="align-btn" disabled>Run Alignment</button>
         <span id="match-readout" class="muted"></span>
+      </div>
+
+      <div id="prealign-check" hidden>
+        <h3>Pre-aligned check — what valis's rigid step starts from</h3>
+        <div id="prealign-readout" class="muted"></div>
+        <img id="prealign-img" alt="Pre-aligned moving (green) over reference (magenta)" />
+        <div class="legend muted">
+          <span class="swatch" style="background:#0f0"></span>Moving (pre-aligned, processed)
+          <span class="swatch" style="background:#f0f"></span>Reference (processed)
+        </div>
       </div>
     </section>
 

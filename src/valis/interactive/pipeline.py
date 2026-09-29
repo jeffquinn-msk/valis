@@ -7,13 +7,16 @@ The public entry point is :func:`run_alignment`. Lower-level helpers
 """
 
 import os
+import pickle
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
 import numpy as np
 import pyvips
+from skimage import transform
 from tqdm import tqdm
 
 from ome_types import OME
@@ -123,6 +126,77 @@ def build_matcher(
         ),
         ransac_thresh=int(ransac_thresh),
     )
+
+
+@dataclass
+class PreviewMatch:
+    """Matches the web app displayed, used verbatim for rigid registration.
+
+    ``kp_moving`` / ``kp_reference`` are paired (N, 2) xy arrays in the pixel
+    space of ``moving_img`` / ``reference_img``: the preprocessed working
+    images the user saw (moving image already flipped/shifted).
+    """
+
+    kp_moving: np.ndarray
+    kp_reference: np.ndarray
+    moving_img: np.ndarray
+    reference_img: np.ndarray
+
+
+def _thumb_to_full_M(thumb_shape_rc, full_wh):
+    """3x3 mapping thumbnail xy -> full-resolution xy (pixel-centre aligned)."""
+    sx = full_wh[0] / thumb_shape_rc[1]
+    sy = full_wh[1] / thumb_shape_rc[0]
+    return np.array(
+        [[sx, 0, 0.5 * sx - 0.5], [0, sy, 0.5 * sy - 0.5], [0, 0, 1]], dtype=float
+    )
+
+
+def preview_affine_full_res(preview: PreviewMatch, moving_full_wh, reference_full_wh):
+    """Similarity fit to the preview's matches, lifted to full resolution.
+
+    Returns ``(A, T)``: ``T`` maps moving-thumbnail xy -> reference-thumbnail
+    xy; ``A`` maps full-resolution moving xy (after flip/shift) ->
+    full-resolution reference xy.
+    """
+    T = transform.SimilarityTransform.from_estimate(
+        np.asarray(preview.kp_moving, dtype=float),
+        np.asarray(preview.kp_reference, dtype=float),
+    )
+    if not T:
+        raise AlignmentError("could not fit a transform to the preview matches")
+    mov_M = _thumb_to_full_M(preview.moving_img.shape[:2], moving_full_wh)
+    ref_M = _thumb_to_full_M(preview.reference_img.shape[:2], reference_full_wh)
+    A = ref_M @ T.params @ np.linalg.inv(mov_M)
+    return A, T.params
+
+
+def apply_affine_pyvips(img: pyvips.Image, A, out_wh) -> pyvips.Image:
+    """Warp ``img`` by the forward 3x3 ``A`` onto an ``out_wh`` canvas."""
+    return img.affine(
+        [A[0, 0], A[0, 1], A[1, 0], A[1, 1]],
+        odx=A[0, 2],
+        ody=A[1, 2],
+        oarea=[0, 0, int(out_wh[0]), int(out_wh[1])],
+        interpolate=pyvips.Interpolate.new("bilinear"),
+        extend="black",
+    )
+
+
+def _save_preview_matches(preview: PreviewMatch, matches_dir):
+    """Save the matches that drove rigid registration (the preview's)."""
+    from valis import viz, warp_tools
+
+    os.makedirs(matches_dir, exist_ok=True)
+    viz_img = viz.draw_matches(
+        src_img=preview.moving_img,
+        kp1_xy=preview.kp_moving,
+        dst_img=preview.reference_img,
+        kp2_xy=preview.kp_reference,
+        rad=3,
+        alignment="horizontal",
+    )
+    warp_tools.save_img(os.path.join(matches_dir, "preview_matches.png"), viz_img)
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +527,7 @@ def run_alignment(
     orientation_margin: float = 0.0,
     no_script_orientation: bool = False,
     matcher_cfg: Optional[dict] = None,
+    preview_match: Optional[PreviewMatch] = None,
     progress_cb: Optional[Callable[[str, float, str], None]] = None,
 ) -> str:
     """Run the full two-image alignment and write ``aligned.ome.tif``.
@@ -465,6 +540,16 @@ def run_alignment(
     disables the automatic D4 orientation check so it can't undo the flip.
     ``matcher_cfg`` holds :func:`build_matcher` kwargs (the web app's
     detector/matcher controls); ``None`` keeps valis's default matcher.
+    ``preview_match`` (web app): a coarse pre-alignment. The similarity
+    transform fit to the matches the user saw is applied to the moving image
+    with pyvips, so valis starts from an image that is roughly in the
+    reference's frame (flips, large rotations/offsets resolved) and then runs
+    its normal rigid + non-rigid registration. The automatic orientation check
+    and the sparse-hematoxylin fallback are skipped (the user chose the
+    orientation and processor settings), and valis's tissue crop and intensity
+    normalization are off so its rigid matching sees what the web app's
+    pre-aligned check showed. Every pre-transform applied to the
+    moving image is recorded in ``<output_dir>/preproc_transforms.pickle``.
     ``progress_cb(stage, fraction, message)`` is called at coarse milestones.
 
     Returns the path to the written ``aligned.ome.tif``.
@@ -519,8 +604,11 @@ def run_alignment(
 
     # Orientation pre-check.
     _progress("orientation", 0.08, "checking orientation")
-    if no_script_orientation or user_flipped:
-        reason = "manual flip set" if user_flipped else "disabled"
+    if no_script_orientation or user_flipped or preview_match is not None:
+        if preview_match is not None:
+            reason = "using preview matches"
+        else:
+            reason = "manual flip set" if user_flipped else "disabled"
         print(f"[orientation] script orientation check skipped ({reason})")
         orient_match = orientation_check.OrientationMatch(
             name="identity", k=0, mirror=False, score=0.0, scores={}
@@ -551,23 +639,85 @@ def run_alignment(
         )
 
     needs_correction = orient_match.k != 0 or orient_match.mirror
-    if needs_correction or needs_geometry:
+    moving_src = pyvips.Image.new_from_file(image_path, page=0)
+    reference_src = pyvips.Image.new_from_file(reference_path, page=0)
+    ref_wh = (reference_src.width, reference_src.height)
+
+    preview_A = preview_T = None
+    if preview_match is not None:
+        preview_A, preview_T = preview_affine_full_res(
+            preview_match, (moving_src.width, moving_src.height), ref_wh
+        )
+        print(f"[preview] full-resolution affine to reference frame:\n{preview_A}")
+
+    def _pretransform(img):
+        """Flip/shift, D4 orientation, then the preview affine, in that order."""
+        if needs_geometry:
+            img = processors.apply_geometry_pyvips(img, image_geometry)
+        if needs_correction:
+            img = orientation_check.apply_d4_pyvips(
+                img, orient_match.k, orient_match.mirror
+            )
+        if preview_A is not None:
+            img = apply_affine_pyvips(img, preview_A, ref_wh)
+        return img
+
+    needs_pretransform = needs_correction or needs_geometry or preview_A is not None
+    if needs_pretransform:
         stem, ext = os.path.splitext(os.path.basename(image_path))
         suffix = ""
         if needs_geometry:
             suffix += processors.geometry_tag(image_geometry)
         if needs_correction:
             suffix += f"_k{orient_match.k}_m{int(orient_match.mirror)}"
+        if preview_A is not None:
+            suffix += "_prealigned"
         img_out_path = os.path.join(output_dir, f"{stem}{suffix}{ext}")
+
+    with open(os.path.join(output_dir, "preproc_transforms.pickle"), "wb") as f:
+        pickle.dump(
+            {
+                "image_path": image_path,
+                "reference_path": reference_path,
+                "prealigned_image_path": img_out_path,
+                # Applied to the moving image in this order:
+                "order": ["geometry", "orientation", "preview_affine"],
+                "geometry": image_geometry,
+                "orientation": {
+                    "name": orient_match.name,
+                    "k": orient_match.k,
+                    "mirror": orient_match.mirror,
+                },
+                # Forward 3x3, full-res moving xy (after geometry and
+                # orientation) -> full-res reference xy; None if not used.
+                "preview_affine": preview_A,
+                "preview_affine_out_wh": ref_wh if preview_A is not None else None,
+                # Forward 3x3 fit on the preview thumbnails, and its inputs.
+                "preview_similarity_thumb": preview_T,
+                "preview_kp_moving": (
+                    None if preview_match is None else preview_match.kp_moving
+                ),
+                "preview_kp_reference": (
+                    None if preview_match is None else preview_match.kp_reference
+                ),
+                "preview_moving_shape_rc": (
+                    None
+                    if preview_match is None
+                    else preview_match.moving_img.shape[:2]
+                ),
+                "preview_reference_shape_rc": (
+                    None
+                    if preview_match is None
+                    else preview_match.reference_img.shape[:2]
+                ),
+            },
+            f,
+        )
+
     if not os.path.exists(img_out_path):
-        if needs_correction or needs_geometry:
-            print(f"[orientation] writing pre-transformed copy to {img_out_path}")
-            moving_full = processors.apply_geometry_pyvips(
-                pyvips.Image.new_from_file(image_path, page=0), image_geometry
-            )
-            corrected = orientation_check.apply_d4_pyvips(
-                moving_full, orient_match.k, orient_match.mirror
-            )
+        if needs_pretransform:
+            print(f"[pretransform] writing pre-transformed copy to {img_out_path}")
+            corrected = _pretransform(moving_src)
             corrected.set_progress(True)
             cb = create_progress_callback()
             corrected.signal_connect("eval", cb)
@@ -581,6 +731,10 @@ def run_alignment(
     last_registrar = {"obj": None}
 
     valis_kwargs = {}
+    if preview_match is not None:
+        # Prepare images the way the web app's pre-aligned check does, so its
+        # match count describes what valis's rigid step actually sees.
+        valis_kwargs.update(crop_for_rigid_reg=False, norm_method=None)
     if matcher_cfg is not None:
         # Use the tuned matcher for valis's initial "sorting" match too.
         # Otherwise valis first matches with its default VGG + RANSAC sorting
@@ -603,6 +757,8 @@ def run_alignment(
             name="registration",
             img_list=[image_path_final, reference_path_final],
             reference_img_f=reference_path_final,
+            # Always exactly two images: nothing to order.
+            imgs_ordered=True,
             thumbnail_size=max_processed_image_dim_px,
             max_processed_image_dim_px=max_processed_image_dim_px,
             max_image_dim_px=max_processed_image_dim_px,
@@ -627,6 +783,13 @@ def run_alignment(
     try:
         registrar = _attempt_register(primary_pd)
     except TooFewMatchesError as e:
+        if preview_match is not None:
+            # Don't silently swap in different processor settings.
+            if last_registrar["obj"] is not None:
+                _dump_failed_matches(last_registrar["obj"], matches_dir)
+            raise AlignmentError(
+                f"valis rigid registration (after preview pre-alignment): {e}"
+            ) from e
         registrar = _run_sparse_fallback(
             e,
             image_stain,
@@ -640,6 +803,8 @@ def run_alignment(
 
     _progress("matches", 0.80, "drawing match visualization")
     registrar.draw_matches(matches_dir)
+    if preview_match is not None:
+        _save_preview_matches(preview_match, matches_dir)
     print(f"Saved feature-match visualization to {matches_dir}")
 
     aligned_path = os.path.join(output_dir, "aligned.ome.tif")
@@ -651,12 +816,7 @@ def run_alignment(
         img = pyvips.Image.new_from_file(image_path, page=0)
         if img.format == "ushort":
             img = convert_16to8_bit(img)
-        if needs_geometry:
-            img = processors.apply_geometry_pyvips(img, image_geometry)
-        if needs_correction:
-            img = orientation_check.apply_d4_pyvips(
-                img, orient_match.k, orient_match.mirror
-            )
+        img = _pretransform(img)
         warped_img = warp_new_slide(
             img, registrar, source_img=image_path_final, dst_img=reference_path_final
         )

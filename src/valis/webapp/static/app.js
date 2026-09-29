@@ -1,19 +1,24 @@
 "use strict";
 
 const SIDES = ["image", "reference"];
-const WORK_SIZE = 1024; // thumbnail side used for preview + live matching
 
 const state = {
   schema: null,
   sessionId: null,
   matcher: {},
+  align: {},
   side: {
     // Only the moving image has a geometric pre-transform; the reference
-    // defines the aligned output's frame.
-    image: { processor: null, params: {}, geometry: {}, preview: null },
-    reference: { processor: null, params: {}, preview: null },
+    // defines the aligned output's frame. ``res.size`` is the working
+    // resolution (longest side, px) the image is preprocessed + matched at.
+    image: {
+      processor: null, params: {}, geometry: {}, res: {}, native: null, preview: null,
+    },
+    reference: { processor: null, params: {}, res: {}, native: null, preview: null },
   },
   lastMatch: null,
+  matchSeq: 0,
+  aligning: false,
   osdViewer: null,
 };
 
@@ -103,9 +108,30 @@ function renderGeometry() {
   });
 }
 
+function renderResolution(side) {
+  const container = $(`.panel[data-side="${side}"] .resolution`);
+  container.innerHTML = "";
+  container.appendChild(paramRow(
+    side, { ...state.schema.resolution, name: "size", label: "working resolution (px)" },
+    state.side[side].res,
+  ));
+}
+
+function updateResInfo(side) {
+  const s = state.side[side];
+  const info = $(`.panel[data-side="${side}"] .res-info`);
+  if (!s.preview || !s.native) { info.textContent = ""; return; }
+  const scale = s.preview.iw / s.native.w;
+  info.textContent =
+    `working image ${s.preview.iw} × ${s.preview.ih} px ` +
+    `(native ${s.native.w} × ${s.native.h}, ${(scale * 100).toPrecision(3)}%)` +
+    (s.res.size > Math.max(s.native.w, s.native.h) ? " — capped at native" : "");
+}
+
 function paramRow(side, p, target) {
   const row = document.createElement("div");
   const cur = target[p.name];
+  const labelText = p.label || p.name;
   if (p.type === "bool") {
     row.className = "param-row bool";
     const cb = document.createElement("input");
@@ -118,13 +144,13 @@ function paramRow(side, p, target) {
     };
     const label = document.createElement("span");
     label.className = "param-label";
-    label.textContent = p.name;
+    label.textContent = labelText;
     row.append(cb, label);
   } else if (p.type === "enum") {
     row.className = "param-row";
     const lab = document.createElement("div");
     lab.className = "param-label";
-    lab.innerHTML = `<span>${p.name}</span>`;
+    lab.innerHTML = `<span>${labelText}</span>`;
     const sel = document.createElement("select");
     p.options.forEach((o) => {
       const opt = document.createElement("option");
@@ -142,7 +168,7 @@ function paramRow(side, p, target) {
     row.className = "param-row";
     const lab = document.createElement("div");
     lab.className = "param-label";
-    lab.innerHTML = `<span>${p.name}</span><span class="val">${cur}</span>`;
+    lab.innerHTML = `<span>${labelText}</span><span class="val">${cur}</span>`;
     const input = document.createElement("input");
     input.type = "range";
     input.min = p.min; input.max = p.max; input.step = p.step;
@@ -159,13 +185,12 @@ function paramRow(side, p, target) {
   return row;
 }
 
-function buildMatcherControls() {
-  const grid = $(".matcher-grid");
+// ``onChange(key)`` runs after a control changes ``target[key]``.
+function buildControlGrid(grid, schema, target, onChange) {
   grid.innerHTML = "";
-  const m = state.schema.matcher;
-  Object.keys(m).forEach((key) => {
-    const spec = m[key];
-    state.matcher[key] = spec.default;
+  Object.keys(schema).forEach((key) => {
+    const spec = schema[key];
+    target[key] = spec.default;
     const wrap = document.createElement("label");
     wrap.className = "ctrl";
     const labelText = key.replace(/_/g, " ");
@@ -177,7 +202,7 @@ function buildMatcherControls() {
         opt.value = o; opt.textContent = o; sel.appendChild(opt);
       });
       sel.value = spec.default;
-      sel.onchange = () => { state.matcher[key] = sel.value; };
+      sel.onchange = () => { target[key] = sel.value; onChange(key); };
       wrap.appendChild(sel);
     } else {
       wrap.innerHTML =
@@ -189,13 +214,27 @@ function buildMatcherControls() {
       input.oninput = () => {
         const v = spec.type === "int"
           ? parseInt(input.value, 10) : parseFloat(input.value);
-        state.matcher[key] = v;
+        target[key] = v;
         $(".mval", wrap).textContent = v;
+        onChange(key);
       };
       wrap.appendChild(input);
     }
     grid.appendChild(wrap);
   });
+}
+
+function buildMatcherControls() {
+  // Matches shown must always be the ones the current settings produce.
+  buildControlGrid($("#matcher-controls .matcher-grid"), state.schema.matcher,
+    state.matcher, clearMatchOverlay);
+}
+
+function buildAlignControls() {
+  // The pre-aligned check runs at the valis resolution, so changing it
+  // invalidates the matches; min matches only re-gates the Align button.
+  buildControlGrid($(".align-grid"), state.schema.alignment, state.align,
+    (key) => (key === "valis_resolution" ? clearMatchOverlay() : updateAlignButton()));
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +258,7 @@ async function preprocess(side) {
   const seq = (preprocessSeq[side] = (preprocessSeq[side] || 0) + 1);
   const s = state.side[side];
   const body = JSON.stringify({
-    processor: s.processor, params: s.params, geometry: s.geometry, size: WORK_SIZE,
+    processor: s.processor, params: s.params, geometry: s.geometry, size: s.res.size,
   });
   try {
     const res = await api(`/api/preprocess/${state.sessionId}/${side}`, {
@@ -257,6 +296,7 @@ function drawPreview(side, img) {
   state.side[side].preview = {
     img, dw, dh, ox, oy, iw: img.width, ih: img.height,
   };
+  updateResInfo(side);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +308,10 @@ function clearMatchOverlay() {
   const ctx = ov.getContext("2d");
   ctx.clearRect(0, 0, ov.width, ov.height);
   $("#match-readout").textContent = "";
+  $("#prealign-check").hidden = true;
   state.lastMatch = null;
+  state.matchSeq += 1; // an in-flight match is now stale
+  updateAlignButton();
   // redraw previews to erase dots
   SIDES.forEach((side) => {
     const p = state.side[side].preview;
@@ -276,9 +319,39 @@ function clearMatchOverlay() {
   });
 }
 
+function updateAlignButton() {
+  const btn = $("#align-btn");
+  if (state.aligning) return;
+  const m = state.lastMatch;
+  const need = state.align.min_matches;
+  const pre = m && m.prealigned;
+  const n = pre ? pre.n_filtered : 0;
+  btn.disabled = !pre || n < need;
+  btn.title = !m
+    ? "Run keypoint detection first; alignment starts from its matches"
+    : !pre
+      ? "Too few preview matches to pre-align the moving image"
+      : n < need
+        ? `Pre-aligned check found ${n} matches; min matches is ${need}`
+        : "";
+  if (m) {
+    $("#match-readout").textContent =
+      `Preview: ${m.n_filtered} filtered / ${m.n_total} total matches` +
+      (pre ? "" : " — too few to pre-align");
+  }
+  if (pre) {
+    $("#prealign-readout").textContent =
+      `${n} filtered / ${pre.n_total} total matches at ` +
+      `${pre.size[0]} × ${pre.size[1]} px (valis resolution ${pre.valis_resolution})` +
+      (n < need ? ` — below min matches (${need})` : ` — min matches ${need} ✓`);
+  }
+}
+
 function imageCfg() {
   const s = state.side.image;
-  return { processor: s.processor, params: s.params, geometry: s.geometry };
+  return {
+    processor: s.processor, params: s.params, geometry: s.geometry, size: s.res.size,
+  };
 }
 
 async function runMatch() {
@@ -286,24 +359,31 @@ async function runMatch() {
   const btn = $("#match-btn");
   btn.disabled = true;
   btn.textContent = "Detecting…";
+  clearMatchOverlay();
+  const seq = state.matchSeq;
   try {
     const body = JSON.stringify({
       image: imageCfg(),
       reference: {
         processor: state.side.reference.processor,
         params: state.side.reference.params,
+        size: state.side.reference.res.size,
       },
       matcher: state.matcher,
-      size: WORK_SIZE,
+      valis_resolution: state.align.valis_resolution,
     });
     const res = await api(`/api/match/${state.sessionId}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body,
     });
     const data = await res.json();
+    if (seq !== state.matchSeq) return; // settings changed while matching
     state.lastMatch = data;
     drawMatches(data);
-    $("#match-readout").textContent =
-      `${data.n_filtered} filtered / ${data.n_total} total matches`;
+    if (data.prealigned) {
+      $("#prealign-img").src = `data:image/png;base64,${data.prealigned.overlay_png}`;
+      $("#prealign-check").hidden = false;
+    }
+    updateAlignButton();
   } catch (e) {
     toast(`Matching failed: ${e.message}`);
   } finally {
@@ -401,18 +481,14 @@ function drawConnectors(data) {
 // ---------------------------------------------------------------------------
 
 async function runAlignment() {
-  if (!state.sessionId) return;
+  if (!state.sessionId || !state.lastMatch) return;
   const btn = $("#align-btn");
+  state.aligning = true;
   btn.disabled = true;
   $("#outputs").hidden = true;
   const body = JSON.stringify({
-    image: imageCfg(),
-    reference: {
-      processor: state.side.reference.processor, params: state.side.reference.params,
-    },
-    matcher: state.matcher,
-    max_dim: 2048,
-    min_matches: 30,
+    match_id: state.lastMatch.match_id,
+    min_matches: state.align.min_matches,
   });
   try {
     const res = await api(`/api/align/${state.sessionId}`, {
@@ -422,7 +498,8 @@ async function runAlignment() {
     pollJob(job_id);
   } catch (e) {
     toast(`Alignment failed to start: ${e.message}`);
-    btn.disabled = false;
+    state.aligning = false;
+    updateAlignButton();
   }
 }
 
@@ -434,14 +511,16 @@ async function pollJob(jobId) {
     btn.textContent = `Aligning… ${s.stage} ${(s.progress * 100).toFixed(0)}%`;
     if (s.state === "done") {
       btn.textContent = "Run Alignment";
-      btn.disabled = false;
+      state.aligning = false;
+      updateAlignButton();
       showResult(jobId);
       showOutputs(jobId);
       return;
     }
     if (s.state === "error") {
       btn.textContent = "Run Alignment";
-      btn.disabled = false;
+      state.aligning = false;
+      updateAlignButton();
       toast(`Alignment error: ${s.message}`);
       // A failed run still leaves diagnostics (e.g. the failed-matches plot).
       showOutputs(jobId);
@@ -450,7 +529,8 @@ async function pollJob(jobId) {
     setTimeout(() => pollJob(jobId), 1000);
   } catch (e) {
     btn.textContent = "Run Alignment";
-    btn.disabled = false;
+    state.aligning = false;
+    updateAlignButton();
     toast(`Status poll failed: ${e.message}`);
   }
 }
@@ -728,7 +808,11 @@ async function loadSession() {
           ? sug
           : Object.keys(state.schema.processors)[0];
       state.side[side].params = paramDefaults(state.side[side].processor);
+      state.side[side].native = { w: data[side].w, h: data[side].h };
+      state.side[side].res = { size: state.schema.resolution.default };
+      state.side[side].preview = null;
       buildProcessorControls(side);
+      renderResolution(side);
     });
     state.side.image.geometry = geometryDefaults();
     renderGeometry();
@@ -736,7 +820,6 @@ async function loadSession() {
     $("#loaded-label").textContent =
       `${basename(picks.image)}  ↔  ${basename(picks.reference)}`;
     $("#match-btn").disabled = false;
-    $("#align-btn").disabled = false;
     clearMatchOverlay();
     SIDES.forEach((side) => preprocess(side));
   } catch (e) {
@@ -759,6 +842,7 @@ async function init() {
     return;
   }
   buildMatcherControls();
+  buildAlignControls();
 
   $("#open-btn").onclick = openBrowser;
   $("#browse-close").onclick = () => { $("#browse-modal").hidden = true; };

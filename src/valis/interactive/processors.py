@@ -730,10 +730,41 @@ GEOMETRY_SCHEMA = [
 ]
 
 
+# Working resolution: longest side, in px, of the thumbnail each image is
+# preprocessed and matched at (never above native). Set per image, since two
+# modalities can have very different pixel sizes. Alignment uses the matches
+# found at exactly this resolution.
+RESOLUTION_SCHEMA = {
+    "type": "int",
+    "min": 256,
+    "max": 4096,
+    "step": 128,
+    "default": 1024,
+}
+
+# Remaining knobs of the full alignment run.
+ALIGNMENT_SCHEMA = {
+    # Minimum matches for the pre-aligned check (what valis's rigid step
+    # sees) and for valis's own rigid matching.
+    "min_matches": {"type": "int", "min": 3, "max": 200, "step": 1, "default": 30},
+    # Longest side, in px, of the images valis registers (rigid + non-rigid).
+    # The pre-aligned check in the preview matches at this resolution too.
+    "valis_resolution": {
+        "type": "int",
+        "min": 512,
+        "max": 4096,
+        "step": 128,
+        "default": 1024,
+    },
+}
+
+
 def public_schema() -> dict:
     """Return the JSON-serializable schema for the frontend (no class refs)."""
     return {
         "processors": PARAM_SCHEMA,
         "matcher": MATCHER_SCHEMA,
         "geometry": GEOMETRY_SCHEMA,
+        "resolution": RESOLUTION_SCHEMA,
+        "alignment": ALIGNMENT_SCHEMA,
     }
