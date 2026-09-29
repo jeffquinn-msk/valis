@@ -8,7 +8,9 @@ const state = {
   sessionId: null,
   matcher: {},
   side: {
-    image: { processor: null, params: {}, preview: null },
+    // Only the moving image has a geometric pre-transform; the reference
+    // defines the aligned output's frame.
+    image: { processor: null, params: {}, geometry: {}, preview: null },
     reference: { processor: null, params: {}, preview: null },
   },
   lastMatch: null,
@@ -83,20 +85,34 @@ function renderParams(side) {
   container.innerHTML = "";
   const spec = state.schema.processors[state.side[side].processor];
   (spec ? spec.params : []).forEach((p) => {
-    container.appendChild(paramRow(side, p));
+    container.appendChild(paramRow(side, p, state.side[side].params));
   });
 }
 
-function paramRow(side, p) {
+function geometryDefaults() {
+  const out = {};
+  (state.schema.geometry || []).forEach((p) => { out[p.name] = p.default; });
+  return out;
+}
+
+function renderGeometry() {
+  const container = $(`.panel[data-side="image"] .geometry`);
+  container.innerHTML = "";
+  (state.schema.geometry || []).forEach((p) => {
+    container.appendChild(paramRow("image", p, state.side.image.geometry));
+  });
+}
+
+function paramRow(side, p, target) {
   const row = document.createElement("div");
-  const cur = state.side[side].params[p.name];
+  const cur = target[p.name];
   if (p.type === "bool") {
     row.className = "param-row bool";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = !!cur;
     cb.onchange = () => {
-      state.side[side].params[p.name] = cb.checked;
+      target[p.name] = cb.checked;
       clearMatchOverlay();
       schedulePreprocess(side);
     };
@@ -116,7 +132,7 @@ function paramRow(side, p) {
     });
     sel.value = cur;
     sel.onchange = () => {
-      state.side[side].params[p.name] = sel.value;
+      target[p.name] = sel.value;
       clearMatchOverlay();
       schedulePreprocess(side);
     };
@@ -133,7 +149,7 @@ function paramRow(side, p) {
     input.value = cur;
     input.oninput = () => {
       const v = p.type === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
-      state.side[side].params[p.name] = v;
+      target[p.name] = v;
       $(".val", lab).textContent = v;
       clearMatchOverlay();
       schedulePreprocess(side);
@@ -186,13 +202,24 @@ function buildMatcherControls() {
 // Preview rendering
 // ---------------------------------------------------------------------------
 
-const schedulePreprocess = debounce((side) => { preprocess(side); }, 220);
+// One debounce timer per side: a shared timer would let a change on one
+// panel cancel the pending re-render of the other.
+const preprocessTimers = {};
+SIDES.forEach((side) => {
+  preprocessTimers[side] = debounce(() => { preprocess(side); }, 220);
+});
+function schedulePreprocess(side) { preprocessTimers[side](); }
+
+// Monotonic request counter per side so a slow, stale response can't
+// overwrite the preview for newer parameters.
+const preprocessSeq = {};
 
 async function preprocess(side) {
   if (!state.sessionId) return;
+  const seq = (preprocessSeq[side] = (preprocessSeq[side] || 0) + 1);
   const s = state.side[side];
   const body = JSON.stringify({
-    processor: s.processor, params: s.params, size: WORK_SIZE,
+    processor: s.processor, params: s.params, geometry: s.geometry, size: WORK_SIZE,
   });
   try {
     const res = await api(`/api/preprocess/${state.sessionId}/${side}`, {
@@ -200,6 +227,7 @@ async function preprocess(side) {
     });
     const blob = await res.blob();
     const img = await blobToImage(blob);
+    if (seq !== preprocessSeq[side]) return;
     drawPreview(side, img);
   } catch (e) {
     toast(`Preprocess (${side}) failed: ${e.message}`);
@@ -248,6 +276,11 @@ function clearMatchOverlay() {
   });
 }
 
+function imageCfg() {
+  const s = state.side.image;
+  return { processor: s.processor, params: s.params, geometry: s.geometry };
+}
+
 async function runMatch() {
   if (!state.sessionId) return;
   const btn = $("#match-btn");
@@ -255,7 +288,7 @@ async function runMatch() {
   btn.textContent = "Detecting…";
   try {
     const body = JSON.stringify({
-      image: { processor: state.side.image.processor, params: state.side.image.params },
+      image: imageCfg(),
       reference: {
         processor: state.side.reference.processor,
         params: state.side.reference.params,
@@ -371,8 +404,9 @@ async function runAlignment() {
   if (!state.sessionId) return;
   const btn = $("#align-btn");
   btn.disabled = true;
+  $("#outputs").hidden = true;
   const body = JSON.stringify({
-    image: { processor: state.side.image.processor, params: state.side.image.params },
+    image: imageCfg(),
     reference: {
       processor: state.side.reference.processor, params: state.side.reference.params,
     },
@@ -402,12 +436,15 @@ async function pollJob(jobId) {
       btn.textContent = "Run Alignment";
       btn.disabled = false;
       showResult(jobId);
+      showOutputs(jobId);
       return;
     }
     if (s.state === "error") {
       btn.textContent = "Run Alignment";
       btn.disabled = false;
       toast(`Alignment error: ${s.message}`);
+      // A failed run still leaves diagnostics (e.g. the failed-matches plot).
+      showOutputs(jobId);
       return;
     }
     setTimeout(() => pollJob(jobId), 1000);
@@ -416,6 +453,92 @@ async function pollJob(jobId) {
     btn.disabled = false;
     toast(`Status poll failed: ${e.message}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Valis output: directory, summary metrics, plots, file listing
+// ---------------------------------------------------------------------------
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+
+function humanSize(n) {
+  if (n == null) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+function fmtCell(v) {
+  const x = Number(v);
+  return v !== "" && Number.isFinite(x) && !Number.isInteger(x) ? x.toPrecision(4) : v;
+}
+
+async function showOutputs(jobId) {
+  let data;
+  try {
+    const res = await api(`/api/result/${jobId}/outputs`);
+    data = await res.json();
+  } catch (e) {
+    toast(`Could not list valis output: ${e.message}`);
+    return;
+  }
+  const fileUrl = (path) =>
+    `/api/result/${jobId}/file?path=${encodeURIComponent(path)}`;
+
+  $("#out-dir").textContent = data.out_dir;
+  $("#copy-dir-btn").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(data.out_dir);
+      toast("Output path copied", 1500);
+    } catch (e) {
+      toast(`Copy failed: ${e.message}`);
+    }
+  };
+
+  const summary = $("#summary");
+  summary.innerHTML = "";
+  if (data.summary.length) {
+    const cols = Object.keys(data.summary[0]);
+    const table = el("table", { className: "summary-table" },
+      el("thead", {}, el("tr", {}, ...cols.map((c) => el("th", { textContent: c })))),
+      el("tbody", {}, ...data.summary.map((r) =>
+        el("tr", {}, ...cols.map((c) => el("td", { textContent: fmtCell(r[c]) }))))));
+    summary.append(el("div", { className: "table-wrap" }, table));
+  }
+
+  const groups = $("#plot-groups");
+  groups.innerHTML = "";
+  if (!data.plot_groups.length) {
+    groups.append(el("p", { className: "muted", textContent: "No plots were written." }));
+  }
+  data.plot_groups.forEach(({ group, plots }) => {
+    const grid = el("div", { className: "plot-grid" });
+    plots.forEach((p) => {
+      const url = fileUrl(p.path);
+      grid.append(el("a", { href: url, target: "_blank", className: "plot" },
+        el("img", { src: url, loading: "lazy", alt: p.name }),
+        el("span", { textContent: p.name })));
+    });
+    groups.append(el("h3", { textContent: group.replace(/_/g, " ") }), grid);
+  });
+
+  const ul = $("#file-list ul");
+  ul.innerHTML = "";
+  data.files.forEach((f) => {
+    const label = `${f.path}${f.link ? " (link)" : ""}`;
+    const name = f.link
+      ? el("span", { textContent: label })
+      : el("a", { href: fileUrl(f.path), target: "_blank", textContent: label });
+    ul.append(el("li", {}, name, el("span", { className: "muted", textContent: humanSize(f.size) })));
+  });
+  $("#file-list summary").textContent = `All files (${data.files.length})`;
+
+  $("#outputs").hidden = false;
 }
 
 function ensureGeoTIFFEnabled() {
@@ -447,17 +570,18 @@ async function showResult(jobId) {
   $("#tuning").hidden = true;
   const result = $("#result");
   result.hidden = false;
-  const url = `/api/result/${jobId}/aligned.ome.tif`;
   try {
     if (!ensureGeoTIFFEnabled()) {
       throw new Error("GeoTIFFTileSource plugin not loaded");
     }
     // aligned.ome.tif stacks two same-size pages (0 = warped moving image,
-    // 1 = reference). The plugin merges same-size pages into one source and
-    // shows planeIndex 0, so request each page as its own source. (The
-    // options arg is required anyway: the plugin reads opts.GeoTIFFOptions.)
+    // 1 = reference) with SubIFD pyramids. The plugin can't read SubIFDs and
+    // its fallback ignores hints.layout.planeIndex, so both layers showed
+    // page 0. The server re-exposes each page as its own single-page,
+    // IFD-pyramid TIFF instead. (The options arg is required: the plugin
+    // reads opts.GeoTIFFOptions.)
     const plane = (i) => OpenSeadragon.GeoTIFFTileSource
-      .getAllTileSources(url, { hints: { layout: { planeIndex: i } } })
+      .getAllTileSources(`/api/result/${jobId}/plane/${i}.tif`, {})
       .then((srcs) => srcs[0]);
     const [moving, reference] = await Promise.all([plane(0), plane(1)]);
     if (state.osdViewer) { state.osdViewer.destroy(); }
@@ -606,6 +730,8 @@ async function loadSession() {
       state.side[side].params = paramDefaults(state.side[side].processor);
       buildProcessorControls(side);
     });
+    state.side.image.geometry = geometryDefaults();
+    renderGeometry();
     $("#browse-modal").hidden = true;
     $("#loaded-label").textContent =
       `${basename(picks.image)}  ↔  ${basename(picks.reference)}`;

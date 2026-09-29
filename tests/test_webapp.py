@@ -100,6 +100,39 @@ def test_session_thumbnail_preprocess(client):
     )
     assert pre.status_code == 200 and pre.headers["content-type"] == "image/png"
 
+    blurred = client.post(
+        f"/api/preprocess/{sid}/reference",
+        json={
+            "processor": "fluorescence-blur",
+            "params": {"sigma": 2.5, "plo": 1, "phi": 99},
+            "size": 128,
+        },
+    )
+    assert blurred.status_code == 200
+    assert blurred.headers["content-type"] == "image/png"
+    assert blurred.content != pre.content
+
+    everything = client.post(
+        f"/api/preprocess/{sid}/reference",
+        json={
+            "processor": "fluorescence-blur",
+            "params": {
+                "bg_sigma": 20,
+                "median": 3,
+                "sigma": 1,
+                "gamma": 0.7,
+                "clahe": True,
+                "clahe_clip": 0.02,
+                "clahe_grid": 4,
+                "unsharp_amount": 1,
+                "unsharp_radius": 2,
+            },
+            "size": 128,
+        },
+    )
+    assert everything.status_code == 200
+    assert everything.headers["content-type"] == "image/png"
+
 
 def test_match_endpoint_runs(client):
     """The fast path must run without the kp2_xy=None crash (may find 0 matches
@@ -279,3 +312,160 @@ def test_lightglue_filter_uses_ransac_thresh(monkeypatch):
         img, img.copy(), max_keypoints=512, ransac_thresh=3, filter_method="ransac"
     )
     assert seen and all(v == 3 for v in seen), seen
+
+
+def test_preprocess_applies_moving_geometry(client):
+    sid = client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
+    ).json()["session_id"]
+
+    def png(side, geometry):
+        import io
+
+        from PIL import Image
+
+        r = client.post(
+            f"/api/preprocess/{sid}/{side}",
+            json={
+                # percentile stretch only, so it commutes exactly with a flip
+                "processor": "fluorescence",
+                "params": {},
+                "geometry": geometry,
+                "size": 128,
+            },
+        )
+        assert r.status_code == 200
+        return np.asarray(Image.open(io.BytesIO(r.content)))
+
+    plain = png("image", {})
+    flipped = png("image", {"flip_h": True})
+    np.testing.assert_array_equal(flipped, plain[:, ::-1])
+    # the reference defines the output frame: geometry is ignored there
+    np.testing.assert_array_equal(
+        png("reference", {"flip_h": True}), png("reference", {})
+    )
+
+
+def test_align_forwards_geometry(client, monkeypatch):
+    import time
+
+    captured = {}
+
+    def fake_run_alignment(**kwargs):
+        captured.update(kwargs)
+        return "/nonexistent/aligned.ome.tif"
+
+    monkeypatch.setattr(webapp_app.pipeline, "run_alignment", fake_run_alignment)
+    sid = client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
+    ).json()["session_id"]
+    geometry = {"flip_h": False, "flip_v": True, "tx": 5, "ty": -3}
+    job_id = client.post(
+        f"/api/align/{sid}",
+        json={
+            "image": {"processor": "od", "params": {}, "geometry": geometry},
+            "reference": {"processor": "fluorescence", "params": {}},
+        },
+    ).json()["job_id"]
+    for _ in range(100):
+        status = client.get(f"/api/align/{job_id}/status").json()
+        if status["state"] in ("done", "error"):
+            break
+        time.sleep(0.05)
+    assert status["state"] == "done", status
+    assert captured["image_geometry"] == geometry
+
+
+def test_frontend_assets_revalidate(client):
+    """Browsers must not serve a stale app.js after the frontend changes."""
+    r = client.get("/static/app.js")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_result_outputs_lists_and_serves_valis_files(client, tmp_path):
+    """The result page lists valis's plots (grouped, overlaps first), the
+    summary metrics, and serves files only from inside the job directory."""
+    out = tmp_path / "job_out"
+    reg = out / "registration"
+    for sub, name in [
+        ("masks", "a.png"),
+        ("overlaps", "registration_rigid_overlap.png"),
+        ("matches", "m.png"),
+    ]:
+        (reg / sub).mkdir(parents=True, exist_ok=True)
+        (reg / sub / name).write_bytes(b"\x89PNG fake")
+    (reg / "data").mkdir()
+    (reg / "data" / "registration_summary.csv").write_text(
+        "filename,from,to,rigid_D,shape\n"
+        "/x/mov.tif,mov,ref,4.5,\"(1, 2)\"\n"
+        "/x/ref.tif,ref,,,\"(1, 2)\"\n"
+    )
+    (tmp_path / "secret.txt").write_text("nope")
+    webapp_app._jobs["outjob"] = {
+        "state": "error", "stage": "", "progress": 0.0, "message": "",
+        "result": None, "out_dir": str(out),
+    }
+    try:
+        data = client.get("/api/result/outjob/outputs").json()
+        assert data["out_dir"] == os.path.realpath(out)
+        assert [g["group"] for g in data["plot_groups"]] == [
+            "overlaps", "matches", "masks",
+        ]
+        assert data["summary"] == [
+            {"from": "mov", "to": "ref", "rigid_D": "4.5"}
+        ]
+        paths = {f["path"] for f in data["files"]}
+        assert "registration/data/registration_summary.csv" in paths
+
+        r = client.get(
+            "/api/result/outjob/file",
+            params={"path": "registration/overlaps/registration_rigid_overlap.png"},
+        )
+        assert r.status_code == 200 and r.content == b"\x89PNG fake"
+        assert client.get(
+            "/api/result/outjob/file", params={"path": "../secret.txt"}
+        ).status_code == 400
+        assert client.get("/api/result/nojob/outputs").status_code == 404
+    finally:
+        webapp_app._jobs.pop("outjob", None)
+
+
+def test_result_plane_serves_each_page_separately(client, tmp_path):
+    """Each viewer layer must get its own page of aligned.ome.tif (the tile
+    source plugin ignored planeIndex and showed page 0 twice)."""
+    import pyvips
+
+    out = tmp_path / "planejob"
+    out.mkdir()
+    # larger than one 256px tile so the served copy has pyramid levels
+    h, w = 520, 600
+    pages = [np.full((h, w), v, np.uint8) for v in (40, 200)]
+    stacked = pyvips.Image.arrayjoin(
+        [pyvips.Image.new_from_array(p).cast("uchar") for p in pages], across=1
+    )
+    stacked.set_type(pyvips.GValue.gint_type, "page-height", h)
+    tif = out / "aligned.ome.tif"
+    stacked.tiffsave(str(tif), tile=True, pyramid=True, subifd=True)
+    webapp_app._jobs["planejob"] = {
+        "state": "done", "stage": "done", "progress": 1.0, "message": "",
+        "result": str(tif), "out_dir": str(out),
+    }
+    try:
+        for i, expected in enumerate((40, 200)):
+            r = client.get(f"/api/result/planejob/plane/{i}.tif")
+            assert r.status_code == 200
+            f = tmp_path / f"got_{i}.tif"
+            f.write_bytes(r.content)
+            v = pyvips.Image.new_from_file(str(f))
+            assert (v.width, v.height) == (w, h)
+            assert abs(v.avg() - expected) < 3
+            assert v.get_n_pages() > 1  # top-level IFD pyramid, zoomable
+        assert client.get("/api/result/planejob/plane/2.tif").status_code == 404
+        # the viewer cache is not a valis output
+        listing = client.get("/api/result/planejob/outputs").json()
+        assert not any(".viewer" in f["path"] for f in listing["files"])
+    finally:
+        webapp_app._jobs.pop("planejob", None)

@@ -73,7 +73,7 @@ def test_public_schema_is_json_serializable():
 
     schema = processors.public_schema()
     json.dumps(schema)  # must not raise (no class refs leak through)
-    assert set(schema) == {"processors", "matcher"}
+    assert set(schema) == {"processors", "matcher", "geometry"}
 
 
 def test_thumbnail_helpers_downsample():
@@ -85,3 +85,41 @@ def test_thumbnail_helpers_downsample():
     rgb = processors.pyvips_to_thumbnail_rgb_array(vi, 128)
     assert gray.ndim == 2 and max(gray.shape) == 128
     assert rgb.ndim == 3 and rgb.shape[2] == 3 and max(rgb.shape[:2]) == 128
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        {"flip_h": True},
+        {"flip_v": True},
+        {"tx": 12.5, "ty": -20},
+        {"flip_h": True, "flip_v": True, "tx": -30, "ty": 7.5},
+        {"tx": 100},
+    ],
+)
+def test_geometry_array_matches_pyvips(geometry):
+    """The thumbnail (numpy) and full-res (pyvips) pre-transforms must agree,
+    or the preview would show a different image than the one registered."""
+    import pyvips
+
+    arr = _rgb(37, 53)
+    vi = pyvips.Image.new_from_memory(arr.tobytes(), 53, 37, 3, "uchar")
+    expected = processors.apply_geometry_array(arr, geometry)
+    got = processors.apply_geometry_pyvips(vi, geometry)
+    got = np.ndarray(
+        buffer=got.write_to_memory(), dtype=np.uint8, shape=(37, 53, 3)
+    )
+    np.testing.assert_array_equal(got, expected)
+
+
+def test_geometry_semantics():
+    a = np.arange(12, dtype=np.uint8).reshape(3, 4)
+    np.testing.assert_array_equal(
+        processors.apply_geometry_array(a, {"flip_h": True}), a[:, ::-1]
+    )
+    # +25% of width 4 = 1 px right; exposed column is black
+    shifted = processors.apply_geometry_array(a, {"tx": 25})
+    np.testing.assert_array_equal(shifted[:, 1:], a[:, :-1])
+    assert (shifted[:, 0] == 0).all()
+    assert processors.geometry_is_identity({})
+    assert not processors.geometry_is_identity({"ty": 1})

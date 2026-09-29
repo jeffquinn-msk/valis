@@ -187,6 +187,82 @@ class Fluorescence(preprocessing.ImageProcesser):
         return (img * 255).astype(np.uint8)
 
 
+class FluorescenceBlur(Fluorescence):
+    """Tunable single-band fluorescence pipeline: :class:`Fluorescence`'s
+    percentile stretch plus a set of optional classic CV steps.
+
+    Steps run in this order; each is a no-op at its default except the
+    Gaussian blur:
+
+    1. ``bg_sigma`` — background subtraction: subtract a heavily
+       Gaussian-blurred copy of the image to flatten uneven illumination /
+       autofluorescence haze (0 = off).
+    2. ``median`` — median filter kernel size, removes salt-and-pepper /
+       hot pixels while keeping edges (0 or 1 = off).
+    3. ``sigma`` — Gaussian blur, suppresses shot noise so the detector keys
+       on nucleus-scale structure (0 = off).
+    4. ``plo`` / ``phi`` — percentile contrast stretch to [0, 1].
+    5. ``gamma`` — power-law curve; < 1 lifts dim nuclei, > 1 darkens them.
+    6. ``clahe`` — adaptive histogram equalization with ``clahe_clip`` clip
+       limit over a ``clahe_grid`` x ``clahe_grid`` tile grid. See the note
+       on :class:`Fluorescence`: CLAHE can amplify noise into unmatched
+       keypoints, so compare match counts with it on and off.
+    7. ``unsharp_amount`` — unsharp mask with ``unsharp_radius`` to sharpen
+       nucleus boundaries (0 = off).
+
+    All radii / sigmas are in thumbnail pixels. With every optional step off
+    and ``sigma=0`` this is identical to plain ``fluorescence``.
+    """
+
+    def process_image(
+        self,
+        *args,
+        bg_sigma: float = 0.0,
+        median: int = 0,
+        sigma: float = 1.5,
+        plo: float = 1.0,
+        phi: float = 99.0,
+        gamma: float = 1.0,
+        clahe: bool = False,
+        clahe_clip: float = 0.01,
+        clahe_grid: int = 8,
+        unsharp_amount: float = 0.0,
+        unsharp_radius: float = 2.0,
+        **kwargs,
+    ):
+        from scipy.ndimage import gaussian_filter, median_filter
+
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        if bg_sigma > 0:
+            img = np.maximum(img - gaussian_filter(img, bg_sigma), 0.0)
+        median = int(median)
+        if median > 1:
+            img = median_filter(img, size=median)
+        if sigma > 0:
+            img = gaussian_filter(img, sigma)
+        lo, hi = np.percentile(img, (plo, phi))
+        if hi <= lo:
+            hi = lo + 1e-6
+        img = np.clip((img - lo) / (hi - lo), 0.0, 1.0)
+        if gamma != 1.0:
+            img = np.power(img, gamma)
+        if clahe:
+            from skimage import exposure
+
+            grid = max(1, int(clahe_grid))
+            kernel = (max(1, img.shape[0] // grid), max(1, img.shape[1] // grid))
+            img = exposure.equalize_adapthist(
+                img, kernel_size=kernel, clip_limit=clahe_clip
+            ).astype(np.float32)
+        if unsharp_amount > 0 and unsharp_radius > 0:
+            blurred = gaussian_filter(img, unsharp_radius)
+            img = np.clip(img + unsharp_amount * (img - blurred), 0.0, 1.0)
+        return (img * 255).astype(np.uint8)
+
+
 class InvertedFluorescence(preprocessing.ImageProcesser):
     """Reverse the inversion on an 'inverted DAPI' (or similar) greyscale image
     so that nuclei come out bright — matching the convention of hematoxylin
@@ -254,6 +330,84 @@ def pyvips_to_thumbnail_rgb_array(img: pyvips.Image, size: int) -> np.ndarray:
     return np.frombuffer(mem, dtype=np.uint8).reshape(small.height, small.width, 3)
 
 
+# ---------------------------------------------------------------------------
+# Geometric pre-transform (flip + translate), applied before preprocessing
+# ---------------------------------------------------------------------------
+
+# Identity geometry. ``tx`` / ``ty`` are percentages of the image width /
+# height (positive = content moves right / down) so the same setting means
+# the same thing on a thumbnail and on the full-resolution slide. Flips are
+# applied first, so the shift is in the flipped (displayed) frame. The canvas
+# size is kept: content shifted off the edge is dropped, the exposed strip is
+# filled with black.
+GEOMETRY_DEFAULTS = {"flip_h": False, "flip_v": False, "tx": 0.0, "ty": 0.0}
+
+
+def normalize_geometry(geometry) -> dict:
+    g = {**GEOMETRY_DEFAULTS, **(geometry or {})}
+    return {
+        "flip_h": bool(g["flip_h"]),
+        "flip_v": bool(g["flip_v"]),
+        "tx": float(g["tx"]),
+        "ty": float(g["ty"]),
+    }
+
+
+def geometry_is_identity(geometry) -> bool:
+    return normalize_geometry(geometry) == normalize_geometry(None)
+
+
+def _shift_px(pct: float, extent: int) -> int:
+    return int(round(pct / 100.0 * extent))
+
+
+def apply_geometry_array(arr: np.ndarray, geometry) -> np.ndarray:
+    """Apply a flip/translate geometry to a 2-D or 3-D (H, W, C) array."""
+    g = normalize_geometry(geometry)
+    if g["flip_h"]:
+        arr = arr[:, ::-1]
+    if g["flip_v"]:
+        arr = arr[::-1]
+    h, w = arr.shape[:2]
+    dx, dy = _shift_px(g["tx"], w), _shift_px(g["ty"], h)
+    if dx or dy:
+        out = np.zeros_like(arr)
+        src_x0, dst_x0 = max(0, -dx), max(0, dx)
+        src_y0, dst_y0 = max(0, -dy), max(0, dy)
+        cw, ch = w - abs(dx), h - abs(dy)
+        if cw > 0 and ch > 0:
+            out[dst_y0 : dst_y0 + ch, dst_x0 : dst_x0 + cw] = arr[
+                src_y0 : src_y0 + ch, src_x0 : src_x0 + cw
+            ]
+        arr = out
+    return np.ascontiguousarray(arr)
+
+
+def apply_geometry_pyvips(img: pyvips.Image, geometry) -> pyvips.Image:
+    """Full-resolution counterpart of :func:`apply_geometry_array`."""
+    g = normalize_geometry(geometry)
+    if g["flip_h"]:
+        img = img.fliphor()
+    if g["flip_v"]:
+        img = img.flipver()
+    dx, dy = _shift_px(g["tx"], img.width), _shift_px(g["ty"], img.height)
+    if abs(dx) >= img.width or abs(dy) >= img.height:
+        # Shifted fully off-canvas (embed rejects this): all black.
+        return (img * 0).cast(img.format)
+    if dx or dy:
+        img = img.embed(dx, dy, img.width, img.height, extend="black")
+    return img
+
+
+def geometry_tag(geometry) -> str:
+    """Short filename-safe tag identifying a geometry (for cached copies)."""
+    g = normalize_geometry(geometry)
+    return (
+        f"_fh{int(g['flip_h'])}_fv{int(g['flip_v'])}"
+        f"_tx{g['tx']:+.1f}_ty{g['ty']:+.1f}"
+    )
+
+
 def run_processor_on_thumbnail(
     processor_spec, thumb_array: np.ndarray, src_f: str
 ) -> np.ndarray:
@@ -278,6 +432,7 @@ PROCESSOR_REGISTRY = {
     "he-hematoxylin-raw": [HematoxylinExtractor, {"use_macenko": False}],
     "he-hematoxylin-sparse": [HematoxylinExtractor, {"sparse": True}],
     "fluorescence": [Fluorescence, {}],
+    "fluorescence-blur": [FluorescenceBlur, {}],
     "inverted-fluorescence": [InvertedFluorescence, {}],
     "od": [preprocessing.OD, {}],
     "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
@@ -293,6 +448,7 @@ PROCESSOR_INPUT = {
     "he-hematoxylin-raw": "rgb",
     "he-hematoxylin-sparse": "rgb",
     "fluorescence": "gray",
+    "fluorescence-blur": "gray",
     "inverted-fluorescence": "gray",
     "od": "rgb",
     "colorful-standardizer": "rgb",
@@ -393,6 +549,92 @@ PARAM_SCHEMA = {
             },
         ],
     },
+    "fluorescence-blur": {
+        "input": "gray",
+        "params": [
+            {
+                "name": "bg_sigma",
+                "type": "float",
+                "min": 0,
+                "max": 100,
+                "step": 1,
+                "default": 0,
+            },
+            {
+                "name": "median",
+                "type": "int",
+                "min": 0,
+                "max": 9,
+                "step": 1,
+                "default": 0,
+            },
+            {
+                "name": "sigma",
+                "type": "float",
+                "min": 0,
+                "max": 5,
+                "step": 0.1,
+                "default": 1.5,
+            },
+            {
+                "name": "plo",
+                "type": "float",
+                "min": 0,
+                "max": 5,
+                "step": 0.1,
+                "default": 1,
+            },
+            {
+                "name": "phi",
+                "type": "float",
+                "min": 95,
+                "max": 100,
+                "step": 0.1,
+                "default": 99,
+            },
+            {
+                "name": "gamma",
+                "type": "float",
+                "min": 0.3,
+                "max": 3,
+                "step": 0.05,
+                "default": 1,
+            },
+            {"name": "clahe", "type": "bool", "default": False},
+            {
+                "name": "clahe_clip",
+                "type": "float",
+                "min": 0.001,
+                "max": 0.05,
+                "step": 0.001,
+                "default": 0.01,
+            },
+            {
+                "name": "clahe_grid",
+                "type": "int",
+                "min": 2,
+                "max": 32,
+                "step": 1,
+                "default": 8,
+            },
+            {
+                "name": "unsharp_amount",
+                "type": "float",
+                "min": 0,
+                "max": 3,
+                "step": 0.1,
+                "default": 0,
+            },
+            {
+                "name": "unsharp_radius",
+                "type": "float",
+                "min": 0.5,
+                "max": 10,
+                "step": 0.5,
+                "default": 2,
+            },
+        ],
+    },
     "inverted-fluorescence": {"input": "gray", "params": []},
     "od": {
         "input": "rgb",
@@ -456,6 +698,7 @@ STAIN_CHOICES = (
     "he-hematoxylin-raw",
     "he-hematoxylin-sparse",
     "fluorescence",
+    "fluorescence-blur",
     "inverted-fluorescence",
     "od",
     "colorful-standardizer",
@@ -477,6 +720,20 @@ def resolve_auto_stain(path: str) -> str:
     return "inverted-fluorescence" if mean > 127 else "fluorescence"
 
 
+# Moving-image geometric pre-transform controls. Only the moving image gets
+# these: the reference defines the output frame of the aligned result.
+GEOMETRY_SCHEMA = [
+    {"name": "flip_h", "type": "bool", "default": False},
+    {"name": "flip_v", "type": "bool", "default": False},
+    {"name": "tx", "type": "float", "min": -50, "max": 50, "step": 0.5, "default": 0},
+    {"name": "ty", "type": "float", "min": -50, "max": 50, "step": 0.5, "default": 0},
+]
+
+
 def public_schema() -> dict:
     """Return the JSON-serializable schema for the frontend (no class refs)."""
-    return {"processors": PARAM_SCHEMA, "matcher": MATCHER_SCHEMA}
+    return {
+        "processors": PARAM_SCHEMA,
+        "matcher": MATCHER_SCHEMA,
+        "geometry": GEOMETRY_SCHEMA,
+    }

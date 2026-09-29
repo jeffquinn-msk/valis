@@ -447,6 +447,7 @@ def run_alignment(
     reference_stain: str = "auto",
     image_params: Optional[dict] = None,
     reference_params: Optional[dict] = None,
+    image_geometry: Optional[dict] = None,
     max_processed_image_dim_px: int = 2048,
     min_rigid_matches: int = 30,
     orientation_margin: float = 0.0,
@@ -458,6 +459,10 @@ def run_alignment(
 
     Parameters mirror the CLI flags. ``image_params`` / ``reference_params``
     override the per-processor kwargs (used by the web app's sliders).
+    ``image_geometry`` is a flip/translate pre-transform for the moving image
+    (see ``processors.GEOMETRY_DEFAULTS``), applied at full resolution before
+    the orientation check, registration and the final warp. A manual flip
+    disables the automatic D4 orientation check so it can't undo the flip.
     ``matcher_cfg`` holds :func:`build_matcher` kwargs (the web app's
     detector/matcher controls); ``None`` keeps valis's default matcher.
     ``progress_cb(stage, fraction, message)`` is called at coarse milestones.
@@ -506,16 +511,25 @@ def run_alignment(
 
     reference_path_final = ref_out_path
 
+    image_geometry = processors.normalize_geometry(image_geometry)
+    needs_geometry = not processors.geometry_is_identity(image_geometry)
+    if needs_geometry:
+        print(f"[geometry] moving-image pre-transform: {image_geometry}")
+    user_flipped = image_geometry["flip_h"] or image_geometry["flip_v"]
+
     # Orientation pre-check.
     _progress("orientation", 0.08, "checking orientation")
-    if no_script_orientation:
-        print("[orientation] script orientation check disabled")
+    if no_script_orientation or user_flipped:
+        reason = "manual flip set" if user_flipped else "disabled"
+        print(f"[orientation] script orientation check skipped ({reason})")
         orient_match = orientation_check.OrientationMatch(
             name="identity", k=0, mirror=False, score=0.0, scores={}
         )
     else:
         ref_for_check = pyvips.Image.new_from_file(ref_out_path, page=0)
-        moving_for_check = pyvips.Image.new_from_file(image_path, page=0)
+        moving_for_check = processors.apply_geometry_pyvips(
+            pyvips.Image.new_from_file(image_path, page=0), image_geometry
+        )
 
         def _orientation_processor(stain):
             # Gray-input processors (fluorescence, channel-getter) operate on a
@@ -537,14 +551,20 @@ def run_alignment(
         )
 
     needs_correction = orient_match.k != 0 or orient_match.mirror
-    if needs_correction:
+    if needs_correction or needs_geometry:
         stem, ext = os.path.splitext(os.path.basename(image_path))
-        suffix = f"_k{orient_match.k}_m{int(orient_match.mirror)}"
+        suffix = ""
+        if needs_geometry:
+            suffix += processors.geometry_tag(image_geometry)
+        if needs_correction:
+            suffix += f"_k{orient_match.k}_m{int(orient_match.mirror)}"
         img_out_path = os.path.join(output_dir, f"{stem}{suffix}{ext}")
     if not os.path.exists(img_out_path):
-        if needs_correction:
-            print(f"[orientation] writing D4-corrected copy to {img_out_path}")
-            moving_full = pyvips.Image.new_from_file(image_path, page=0)
+        if needs_correction or needs_geometry:
+            print(f"[orientation] writing pre-transformed copy to {img_out_path}")
+            moving_full = processors.apply_geometry_pyvips(
+                pyvips.Image.new_from_file(image_path, page=0), image_geometry
+            )
             corrected = orientation_check.apply_d4_pyvips(
                 moving_full, orient_match.k, orient_match.mirror
             )
@@ -562,7 +582,15 @@ def run_alignment(
 
     valis_kwargs = {}
     if matcher_cfg is not None:
-        valis_kwargs["matcher"] = build_matcher(**matcher_cfg)
+        # Use the tuned matcher for valis's initial "sorting" match too.
+        # Otherwise valis first matches with its default VGG + RANSAC sorting
+        # matcher and enforces ``min_rigid_matches`` on *that* count, before
+        # the tuned matcher ever runs -- so the live preview could show 60
+        # matches while registration aborts on 6. Same matcher class + detector
+        # also means valis skips its rematch pass.
+        tuned = build_matcher(**matcher_cfg)
+        valis_kwargs["matcher"] = tuned
+        valis_kwargs["matcher_for_sorting"] = tuned
 
     def _attempt_register(processor_dict):
         reg_dir = os.path.join(output_dir, "registration")
@@ -623,6 +651,8 @@ def run_alignment(
         img = pyvips.Image.new_from_file(image_path, page=0)
         if img.format == "ushort":
             img = convert_16to8_bit(img)
+        if needs_geometry:
+            img = processors.apply_geometry_pyvips(img, image_geometry)
         if needs_correction:
             img = orientation_check.apply_d4_pyvips(
                 img, orient_match.k, orient_match.mirror
@@ -631,7 +661,7 @@ def run_alignment(
             img, registrar, source_img=image_path_final, dst_img=reference_path_final
         )
         warped_slides.append(warped_img)
-        names.append(os.path.basename(reference_path))
+        names.append(os.path.basename(image_path))
 
         img = pyvips.Image.new_from_file(reference_path, page=0)
         if img.format == "ushort":

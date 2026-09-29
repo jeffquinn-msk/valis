@@ -28,6 +28,8 @@
             <select class="processor-select"></select>
           </label>
           <div class="params"></div>
+          <h3 class="geometry-title">Flip / shift (before keypoints)</h3>
+          <div class="params geometry"></div>
         </div>
 
         <div class="panel" data-side="reference">
@@ -71,6 +73,20 @@
         <button id="back-btn">← Back to tuning</button>
       </div>
       <div id="osd"></div>
+    </section>
+
+    <section id="outputs" hidden>
+      <div class="outputs-head">
+        <h2>Valis output</h2>
+        <code id="out-dir"></code>
+        <button id="copy-dir-btn">Copy path</button>
+      </div>
+      <div id="summary"></div>
+      <div id="plot-groups"></div>
+      <details id="file-list">
+        <summary>All files</summary>
+        <ul></ul>
+      </details>
     </section>
   </main>
 
