@@ -1,4 +1,4 @@
-"""Cached DISK/DeDoDe/LoMa detectors + LightGlue/LoMa matchers and the fast
+"""Cached DISK/DeDoDe/LoMa/RoMa v2 detectors + matchers and the fast
 detect-and-match service used by the ``/api/match`` endpoint.
 
 Loading detector weights is the expensive part, so detectors and matchers are
@@ -18,14 +18,19 @@ _matchers = {}  # (det_key, filter_method, ransac_thresh) -> Matcher
 
 
 def _get_detector(detector: str, max_keypoints: int, matcher: str = "lightglue"):
-    # LoMa ignores ``detector``; don't load its weights once per detector name.
-    if matcher == "loma-b":
+    # LoMa and RoMa v2 ignore ``detector``; don't load their weights once per
+    # detector name.
+    if matcher in ("loma-b", "romav2"):
         detector = None
-    key = (matcher, detector, int(max_keypoints))
+    # For RoMa v2, max_keypoints is only how many matches to sample: keep one
+    # model (~1.1 GB) and update the count instead of loading another.
+    key = (matcher, detector, None if matcher == "romav2" else int(max_keypoints))
     det = _detectors.get(key)
     if det is None:
         det = pipeline.build_detector(detector, max_keypoints, matcher)
         _detectors[key] = det
+    if matcher == "romav2":
+        det.num_features = int(max_keypoints)
     return det, key
 
 
@@ -53,7 +58,7 @@ def detect_and_match(
     matcher: str = "lightglue",
 ):
     """Detect keypoints on both preprocessed thumbnails and match with
-    LightGlue or LoMa.
+    LightGlue or LoMa, or match them densely with RoMa v2.
 
     Returns ``(matched_kp1_xy, matched_kp2_xy, n_total, n_filtered)`` where the
     kp arrays are the (filtered, unless ``filter_method == "none"``) matched

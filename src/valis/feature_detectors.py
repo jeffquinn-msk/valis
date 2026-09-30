@@ -905,3 +905,93 @@ class LoMaFD(FeatureDD):
         desc = desc[0].float().cpu().numpy()
 
         return kp_pos_xy, desc
+
+
+class RoMaV2FD(FeatureDD):
+    """
+    Holder for the RoMa v2 dense matcher, paired with
+    ``feature_matcher.RoMaV2Matcher``.
+
+    RoMa v2 has no separate detection step: it matches two images densely and
+    samples point correspondences from the warp. ``detect_and_compute``
+    therefore returns no keypoints; ``RoMaV2Matcher`` matches the images
+    themselves. ``num_features`` is the number of correspondences sampled per
+    image pair. ``setting`` is a RoMa v2 preset ("turbo", "fast", "base",
+    "precise"). The default, "base", matches at 640x640 in one direction;
+    "precise" adds bidirectional matching and 1280x1280 refinement, which
+    needs well over 13 GB of GPU memory without RoMa's Linux-only fused
+    local-correlation kernel. Runs on CUDA, then MPS, then CPU, whichever is
+    available first. The first use downloads ~1.1 GB of weights and fetches
+    the DINOv3 backbone code from GitHub via ``torch.hub``.
+
+    Citation
+    --------
+    Johan Edstedt, et al. RoMa v2: Harder Better Faster Denser Feature
+    Matching. arXiv 2511.15706, 2025.
+
+    """
+
+    def __init__(self, num_features=MAX_FEATURES, setting="base", *args, **kwargs):
+        if not _TORCH_AVAILABLE:
+            raise ImportError(
+                f"{self.__class__.__name__} requires torch. "
+                "Install with: pip install 'valis-wsi[dl]'"
+            )
+        super().__init__(*args, **kwargs)
+        from romav2 import RoMaV2
+        from romav2.device import device
+
+        self.device = device
+        self.model = RoMaV2()
+        self.model.apply_setting(setting)
+        self.setting = setting
+        self.kp_detector_name = "RoMaV2"
+        self.kp_descriptor_name = "RoMaV2"
+        self.num_features = num_features
+
+    def detect_and_compute(self, image, mask=None):
+        """RoMa v2 matches image pairs densely; there are no per-image
+        features. Returns empty (0, 2) keypoint and (0, 1) descriptor arrays.
+        """
+        return np.empty((0, 2)), np.empty((0, 1), dtype=np.float32)
+
+    def match(self, img1, img2):
+        """Densely match two images and sample ``num_features``
+        correspondences.
+
+        Returns
+        -------
+        kp1_xy, kp2_xy : ndarray
+            (N, 2) matched xy positions (pixel centres) in ``img1`` and
+            ``img2``
+
+        certainty : ndarray
+            (N,) RoMa v2's overlap certainty of each match, in [0, 1]
+
+        """
+        h1, w1 = img1.shape[0:2]
+        h2, w2 = img2.shape[0:2]
+        t_img1 = preprocessing.img_to_tensor(img1).float().to(self.device)
+        t_img2 = preprocessing.img_to_tensor(img2).float().to(self.device)
+
+        # RoMa v2 refuses to run under reduced float32 matmul precision.
+        prev_precision = torch.get_float32_matmul_precision()
+        torch.set_float32_matmul_precision("highest")
+        try:
+            with torch.inference_mode():
+                preds = self.model.match(t_img1, t_img2)
+                matches, certainty, _, _ = self.model.sample(
+                    preds, int(self.num_features)
+                )
+        finally:
+            torch.set_float32_matmul_precision(prev_precision)
+
+        # Normalized coords treat pixel edges as -1/1; valis uses pixel centers.
+        matches = matches.float().cpu().numpy()
+        kp1_xy = np.column_stack(
+            [w1 * (matches[:, 0] + 1) / 2 - 0.5, h1 * (matches[:, 1] + 1) / 2 - 0.5]
+        )
+        kp2_xy = np.column_stack(
+            [w2 * (matches[:, 2] + 1) / 2 - 0.5, h2 * (matches[:, 3] + 1) / 2 - 0.5]
+        )
+        return kp1_xy, kp2_xy, certainty.float().cpu().numpy()

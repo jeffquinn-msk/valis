@@ -46,6 +46,11 @@ def test_matcher_flag_selects_loma(cli):
     assert cfg["matcher"] == "loma-b"
 
 
+def test_matcher_flag_selects_romav2(cli):
+    cfg = cli.matcher_cfg_from_args(_parse(cli, "--matcher", "romav2"))
+    assert cfg["matcher"] == "romav2"
+
+
 def test_filter_method_rejects_preview_only_none(cli):
     with pytest.raises(SystemExit):
         _parse(cli, "--filter-method", "none")

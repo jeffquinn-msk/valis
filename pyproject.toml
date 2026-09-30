@@ -71,6 +71,7 @@ dl = [
     "torchvision<1.0.0,>=0.20.1",
     "kornia<1.0.0,>=0.7.3",
     "einops<1.0.0,>=0.8.0",
+    "romav2>=2.0.1",
 ]
 # Convenience alias that includes dl deps (backward-compatible full install)
 full = ["valis[dl]"]

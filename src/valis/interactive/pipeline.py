@@ -84,10 +84,14 @@ def build_detector(
     """Build the feature detector named in ``processors.MATCHER_SCHEMA``.
 
     LoMa only works with its own DaD + DeDoDe-G features, so
-    ``matcher="loma-b"`` ignores ``detector``.
+    ``matcher="loma-b"`` ignores ``detector``. RoMa v2 is a dense matcher with
+    no detector: ``matcher="romav2"`` ignores ``detector`` and samples
+    ``max_keypoints`` correspondences per image pair.
     """
     if matcher == "loma-b":
         return feature_detectors.LoMaFD(num_features=int(max_keypoints))
+    if matcher == "romav2":
+        return feature_detectors.RoMaV2FD(num_features=int(max_keypoints))
     if matcher != "lightglue":
         raise ValueError(f"unknown matcher: {matcher!r}")
     if detector == "disk":
@@ -105,8 +109,8 @@ def build_matcher(
     matcher: str = "lightglue",
     feature_detector=None,
 ):
-    """Build a LightGlue or LoMa matcher from the ``processors.MATCHER_SCHEMA``
-    knobs.
+    """Build a LightGlue, LoMa or RoMa v2 matcher from the
+    ``processors.MATCHER_SCHEMA`` knobs.
 
     Shared by the web app's live preview and :func:`run_alignment`, so the
     full registration matches with the same settings the user tuned.
@@ -114,11 +118,10 @@ def build_matcher(
     """
     if feature_detector is None:
         feature_detector = build_detector(detector, max_keypoints, matcher)
-    matcher_cls = (
-        feature_matcher.LoMaMatcher
-        if matcher == "loma-b"
-        else feature_matcher.LightGlueMatcher
-    )
+    matcher_cls = {
+        "loma-b": feature_matcher.LoMaMatcher,
+        "romav2": feature_matcher.RoMaV2Matcher,
+    }.get(matcher, feature_matcher.LightGlueMatcher)
     return matcher_cls(
         feature_detector=feature_detector,
         match_filter_method=MATCH_FILTER_NAMES.get(
@@ -134,7 +137,7 @@ class PreviewMatch:
 
     ``kp_moving`` / ``kp_reference`` are paired (N, 2) xy arrays in the pixel
     space of ``moving_img`` / ``reference_img``: the preprocessed working
-    images the user saw (moving image already flipped/shifted).
+    images the user saw (moving image already flipped/rotated).
     """
 
     kp_moving: np.ndarray
@@ -156,7 +159,7 @@ def preview_affine_full_res(preview: PreviewMatch, moving_full_wh, reference_ful
     """Similarity fit to the preview's matches, lifted to full resolution.
 
     Returns ``(A, T)``: ``T`` maps moving-thumbnail xy -> reference-thumbnail
-    xy; ``A`` maps full-resolution moving xy (after flip/shift) ->
+    xy; ``A`` maps full-resolution moving xy (after flip/rotate) ->
     full-resolution reference xy.
     """
     T = transform.SimilarityTransform.from_estimate(
@@ -534,10 +537,10 @@ def run_alignment(
 
     Parameters mirror the CLI flags. ``image_params`` / ``reference_params``
     override the per-processor kwargs (used by the web app's sliders).
-    ``image_geometry`` is a flip/translate pre-transform for the moving image
+    ``image_geometry`` is a flip/rotate pre-transform for the moving image
     (see ``processors.GEOMETRY_DEFAULTS``), applied at full resolution before
-    the orientation check, registration and the final warp. A manual flip
-    disables the automatic D4 orientation check so it can't undo the flip.
+    the orientation check, registration and the final warp. A manual flip or
+    rotation disables the automatic D4 orientation check so it can't undo it.
     ``matcher_cfg`` holds :func:`build_matcher` kwargs (the web app's
     detector/matcher controls); ``None`` keeps valis's default matcher.
     ``preview_match`` (web app): a coarse pre-alignment. The similarity
@@ -546,9 +549,8 @@ def run_alignment(
     reference's frame (flips, large rotations/offsets resolved) and then runs
     its normal rigid + non-rigid registration. The automatic orientation check
     and the sparse-hematoxylin fallback are skipped (the user chose the
-    orientation and processor settings), and valis's tissue crop and intensity
-    normalization are off so its rigid matching sees what the web app's
-    pre-aligned check showed. Every pre-transform applied to the
+    orientation and processor settings), and valis's own match-count gate is
+    off (the caller already checked the preview's count). Every pre-transform applied to the
     moving image is recorded in ``<output_dir>/preproc_transforms.pickle``.
     ``progress_cb(stage, fraction, message)`` is called at coarse milestones.
 
@@ -600,15 +602,15 @@ def run_alignment(
     needs_geometry = not processors.geometry_is_identity(image_geometry)
     if needs_geometry:
         print(f"[geometry] moving-image pre-transform: {image_geometry}")
-    user_flipped = image_geometry["flip_h"] or image_geometry["flip_v"]
+    user_oriented = needs_geometry
 
     # Orientation pre-check.
     _progress("orientation", 0.08, "checking orientation")
-    if no_script_orientation or user_flipped or preview_match is not None:
+    if no_script_orientation or user_oriented or preview_match is not None:
         if preview_match is not None:
             reason = "using preview matches"
         else:
-            reason = "manual flip set" if user_flipped else "disabled"
+            reason = "manual flip/rotation set" if user_oriented else "disabled"
         print(f"[orientation] script orientation check skipped ({reason})")
         orient_match = orientation_check.OrientationMatch(
             name="identity", k=0, mirror=False, score=0.0, scores={}
@@ -646,12 +648,17 @@ def run_alignment(
     preview_A = preview_T = None
     if preview_match is not None:
         preview_A, preview_T = preview_affine_full_res(
-            preview_match, (moving_src.width, moving_src.height), ref_wh
+            preview_match,
+            # the preview was matched on the flipped/rotated moving image
+            processors.geometry_output_wh(
+                image_geometry, (moving_src.width, moving_src.height)
+            ),
+            ref_wh,
         )
         print(f"[preview] full-resolution affine to reference frame:\n{preview_A}")
 
     def _pretransform(img):
-        """Flip/shift, D4 orientation, then the preview affine, in that order."""
+        """Flip/rotate, D4 orientation, then the preview affine, in that order."""
         if needs_geometry:
             img = processors.apply_geometry_pyvips(img, image_geometry)
         if needs_correction:
@@ -732,9 +739,10 @@ def run_alignment(
 
     valis_kwargs = {}
     if preview_match is not None:
-        # Prepare images the way the web app's pre-aligned check does, so its
-        # match count describes what valis's rigid step actually sees.
-        valis_kwargs.update(crop_for_rigid_reg=False, norm_method=None)
+        # min matches was enforced on the preview. valis's own rigid matching
+        # runs on different images (pre-aligned, its own resolution and
+        # preprocessing), so its count isn't comparable; don't gate on it.
+        min_rigid_matches = 0
     if matcher_cfg is not None:
         # Use the tuned matcher for valis's initial "sorting" match too.
         # Otherwise valis first matches with its default VGG + RANSAC sorting

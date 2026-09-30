@@ -86,14 +86,16 @@ def get_parser():
     )
 
     # Detector/matcher controls, mirroring the web app's. Left unset, valis's
-    # default matcher is used; setting any of them builds a LightGlue or LoMa
-    # matcher with the rest taken from processors.MATCHER_SCHEMA defaults.
+    # default matcher is used; setting any of them builds a LightGlue, LoMa or
+    # RoMa v2 matcher with the rest taken from processors.MATCHER_SCHEMA defaults.
     schema = processors.MATCHER_SCHEMA
     parser.add_argument(
         "--matcher",
         choices=schema["matcher"]["options"],
         help=f"Feature matcher (default: {schema['matcher']['default']}). "
-        "loma-b uses its own DaD + DeDoDe-G features and ignores --detector.",
+        "loma-b uses its own DaD + DeDoDe-G features and ignores --detector. "
+        "romav2 matches densely: it ignores --detector and samples "
+        "--max-keypoints matches.",
     )
     parser.add_argument(
         "--detector",

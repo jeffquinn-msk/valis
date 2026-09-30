@@ -331,55 +331,44 @@ def pyvips_to_thumbnail_rgb_array(img: pyvips.Image, size: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Geometric pre-transform (flip + translate), applied before preprocessing
+# Geometric pre-transform (flip + rotate), applied before preprocessing
 # ---------------------------------------------------------------------------
 
-# Identity geometry. ``tx`` / ``ty`` are percentages of the image width /
-# height (positive = content moves right / down) so the same setting means
-# the same thing on a thumbnail and on the full-resolution slide. Flips are
-# applied first, so the shift is in the flipped (displayed) frame. The canvas
-# size is kept: content shifted off the edge is dropped, the exposed strip is
-# filled with black.
-GEOMETRY_DEFAULTS = {"flip_h": False, "flip_v": False, "tx": 0.0, "ty": 0.0}
+# Identity geometry. ``rotate`` is a clockwise rotation in degrees, a multiple
+# of 90 (exact, lossless; 90 / 270 swap width and height). Flips are applied
+# first, so the rotation acts on the flipped image.
+GEOMETRY_DEFAULTS = {"flip_h": False, "flip_v": False, "rotate": 0}
+ROTATIONS = (0, 90, 180, 270)
 
 
 def normalize_geometry(geometry) -> dict:
     g = {**GEOMETRY_DEFAULTS, **(geometry or {})}
-    return {
-        "flip_h": bool(g["flip_h"]),
-        "flip_v": bool(g["flip_v"]),
-        "tx": float(g["tx"]),
-        "ty": float(g["ty"]),
-    }
+    rotate = int(g["rotate"]) % 360
+    if rotate not in ROTATIONS:
+        raise ValueError(f"rotate must be a multiple of 90, got {g['rotate']!r}")
+    return {"flip_h": bool(g["flip_h"]), "flip_v": bool(g["flip_v"]), "rotate": rotate}
 
 
 def geometry_is_identity(geometry) -> bool:
     return normalize_geometry(geometry) == normalize_geometry(None)
 
 
-def _shift_px(pct: float, extent: int) -> int:
-    return int(round(pct / 100.0 * extent))
+def geometry_output_wh(geometry, wh) -> tuple:
+    """(width, height) of a ``wh`` image after ``geometry``."""
+    w, h = wh
+    return (h, w) if normalize_geometry(geometry)["rotate"] in (90, 270) else (w, h)
 
 
 def apply_geometry_array(arr: np.ndarray, geometry) -> np.ndarray:
-    """Apply a flip/translate geometry to a 2-D or 3-D (H, W, C) array."""
+    """Apply a flip/rotate geometry to a 2-D or 3-D (H, W, C) array."""
     g = normalize_geometry(geometry)
     if g["flip_h"]:
         arr = arr[:, ::-1]
     if g["flip_v"]:
         arr = arr[::-1]
-    h, w = arr.shape[:2]
-    dx, dy = _shift_px(g["tx"], w), _shift_px(g["ty"], h)
-    if dx or dy:
-        out = np.zeros_like(arr)
-        src_x0, dst_x0 = max(0, -dx), max(0, dx)
-        src_y0, dst_y0 = max(0, -dy), max(0, dy)
-        cw, ch = w - abs(dx), h - abs(dy)
-        if cw > 0 and ch > 0:
-            out[dst_y0 : dst_y0 + ch, dst_x0 : dst_x0 + cw] = arr[
-                src_y0 : src_y0 + ch, src_x0 : src_x0 + cw
-            ]
-        arr = out
+    if g["rotate"]:
+        # np.rot90 turns counter-clockwise for positive k
+        arr = np.rot90(arr, k=-g["rotate"] // 90, axes=(0, 1))
     return np.ascontiguousarray(arr)
 
 
@@ -390,22 +379,16 @@ def apply_geometry_pyvips(img: pyvips.Image, geometry) -> pyvips.Image:
         img = img.fliphor()
     if g["flip_v"]:
         img = img.flipver()
-    dx, dy = _shift_px(g["tx"], img.width), _shift_px(g["ty"], img.height)
-    if abs(dx) >= img.width or abs(dy) >= img.height:
-        # Shifted fully off-canvas (embed rejects this): all black.
-        return (img * 0).cast(img.format)
-    if dx or dy:
-        img = img.embed(dx, dy, img.width, img.height, extend="black")
+    if g["rotate"]:
+        # vips rot turns clockwise
+        img = img.rot(f"d{g['rotate']}")
     return img
 
 
 def geometry_tag(geometry) -> str:
     """Short filename-safe tag identifying a geometry (for cached copies)."""
     g = normalize_geometry(geometry)
-    return (
-        f"_fh{int(g['flip_h'])}_fv{int(g['flip_v'])}"
-        f"_tx{g['tx']:+.1f}_ty{g['ty']:+.1f}"
-    )
+    return f"_fh{int(g['flip_h'])}_fv{int(g['flip_v'])}_r{g['rotate']}"
 
 
 def run_processor_on_thumbnail(
@@ -670,9 +653,11 @@ PARAM_SCHEMA = {
 # Global detector/matcher controls (not per image).
 MATCHER_SCHEMA = {
     # "loma-b" uses its own DaD + DeDoDe-G features and ignores "detector".
+    # "romav2" is dense (no detector): it ignores "detector" and samples
+    # "max_keypoints" matches.
     "matcher": {
         "type": "enum",
-        "options": ["lightglue", "loma-b"],
+        "options": ["lightglue", "loma-b", "romav2"],
         "default": "lightglue",
     },
     "detector": {"type": "enum", "options": ["disk", "dedode"], "default": "disk"},
@@ -725,8 +710,13 @@ def resolve_auto_stain(path: str) -> str:
 GEOMETRY_SCHEMA = [
     {"name": "flip_h", "type": "bool", "default": False},
     {"name": "flip_v", "type": "bool", "default": False},
-    {"name": "tx", "type": "float", "min": -50, "max": 50, "step": 0.5, "default": 0},
-    {"name": "ty", "type": "float", "min": -50, "max": 50, "step": 0.5, "default": 0},
+    {
+        "name": "rotate",
+        "label": "rotate (° clockwise)",
+        "type": "enum",
+        "options": [str(r) for r in ROTATIONS],
+        "default": "0",
+    },
 ]
 
 
@@ -744,11 +734,9 @@ RESOLUTION_SCHEMA = {
 
 # Remaining knobs of the full alignment run.
 ALIGNMENT_SCHEMA = {
-    # Minimum matches for the pre-aligned check (what valis's rigid step
-    # sees) and for valis's own rigid matching.
+    # Alignment refuses to run on fewer preview matches than this.
     "min_matches": {"type": "int", "min": 3, "max": 200, "step": 1, "default": 30},
     # Longest side, in px, of the images valis registers (rigid + non-rigid).
-    # The pre-aligned check in the preview matches at this resolution too.
     "valis_resolution": {
         "type": "int",
         "min": 512,

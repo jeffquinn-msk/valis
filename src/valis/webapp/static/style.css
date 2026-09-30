@@ -86,12 +86,6 @@ select {
 }
 
 .params { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
-#prealign-check {
-  margin-top: 20px; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 10px; padding: 14px;
-}
-#prealign-check h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-#prealign-img { display: block; max-width: 100%; max-height: 520px; margin: 10px 0; }
 .res-info { font-size: 12px; margin-top: 4px; min-height: 1em; }
 #align-controls .hint { font-size: 12px; margin: 4px 0 10px; }
 .param-row { display: flex; flex-direction: column; gap: 3px; }

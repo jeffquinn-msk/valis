@@ -60,9 +60,9 @@ In `--output-dir`:
 | `--min-rigid-matches` | `30` | Abort with an error if the first matching pass finds fewer matches than this. |
 | `--orientation-margin` | `0.0` | Minimum score margin required before the orientation check rotates or flips the moving image. |
 | `--no-script-orientation` | off | Skip the script's orientation check and let valis handle reflections. |
-| `--matcher` | `lightglue` | Feature matcher: `lightglue` or `loma-b`. |
+| `--matcher` | `lightglue` | Feature matcher: `lightglue`, `loma-b` or `romav2`. |
 | `--detector` | `disk` | Feature detector used with LightGlue: `disk` or `dedode`. |
-| `--max-keypoints` | `7500` | Maximum keypoints per image. |
+| `--max-keypoints` | `7500` | Maximum keypoints per image (with `romav2`, matches sampled per image pair). |
 | `--ransac-thresh` | `7` | Outlier-filter reprojection threshold, in pixels. |
 | `--filter-method` | `magsac` | Outlier filter for matches: `magsac` or `ransac`. |
 
@@ -72,6 +72,15 @@ inference code is vendored in `valis.loma_models`. The first run downloads about
 weights (the LoMa-B checkpoint, DaD and DINOv2 ViT-L), and it needs roughly 4–5 GB of
 RAM. In Python, use `feature_matcher.LoMaMatcher()`, which builds its own
 `feature_detectors.LoMaFD`.
+
+`--matcher romav2` uses [RoMa v2](https://github.com/Parskatt/romav2), a dense matcher
+(installed from PyPI with the `dl` extra). It has no keypoint detector: it matches the
+two images directly and samples `--max-keypoints` correspondences from the dense warp,
+so it ignores `--detector`. It runs RoMa v2's `base` setting (640×640, one direction),
+which uses about 7.5 GB of GPU memory on Apple silicon. The first run downloads about
+1.1 GB of weights and fetches the DINOv3 backbone code from GitHub. In Python, use
+`feature_matcher.RoMaV2Matcher()`, which builds its own `feature_detectors.RoMaV2FD`
+(pass `RoMaV2FD(setting="precise")` for RoMa v2's more accurate, much heavier preset).
 
 `--matcher`, `--detector`, `--max-keypoints`, `--ransac-thresh` and `--filter-method`
 are the same controls as the web app's detector/matcher panel. If none is given,

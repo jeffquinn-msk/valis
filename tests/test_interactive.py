@@ -94,9 +94,11 @@ def test_thumbnail_helpers_downsample():
     [
         {"flip_h": True},
         {"flip_v": True},
-        {"tx": 12.5, "ty": -20},
-        {"flip_h": True, "flip_v": True, "tx": -30, "ty": 7.5},
-        {"tx": 100},
+        {"rotate": 90},
+        {"rotate": 180},
+        {"rotate": "270"},
+        {"flip_h": True, "rotate": 90},
+        {"flip_h": True, "flip_v": True, "rotate": 270},
     ],
 )
 def test_geometry_array_matches_pyvips(geometry):
@@ -108,8 +110,9 @@ def test_geometry_array_matches_pyvips(geometry):
     vi = pyvips.Image.new_from_memory(arr.tobytes(), 53, 37, 3, "uchar")
     expected = processors.apply_geometry_array(arr, geometry)
     got = processors.apply_geometry_pyvips(vi, geometry)
+    assert (got.width, got.height) == processors.geometry_output_wh(geometry, (53, 37))
     got = np.ndarray(
-        buffer=got.write_to_memory(), dtype=np.uint8, shape=(37, 53, 3)
+        buffer=got.write_to_memory(), dtype=np.uint8, shape=expected.shape
     )
     np.testing.assert_array_equal(got, expected)
 
@@ -119,9 +122,13 @@ def test_geometry_semantics():
     np.testing.assert_array_equal(
         processors.apply_geometry_array(a, {"flip_h": True}), a[:, ::-1]
     )
-    # +25% of width 4 = 1 px right; exposed column is black
-    shifted = processors.apply_geometry_array(a, {"tx": 25})
-    np.testing.assert_array_equal(shifted[:, 1:], a[:, :-1])
-    assert (shifted[:, 0] == 0).all()
+    # clockwise: the top-left corner ends up top-right
+    rotated = processors.apply_geometry_array(a, {"rotate": 90})
+    assert rotated.shape == (4, 3)
+    assert rotated[0, -1] == a[0, 0]
+    np.testing.assert_array_equal(rotated, np.rot90(a, k=-1))
     assert processors.geometry_is_identity({})
-    assert not processors.geometry_is_identity({"ty": 1})
+    assert processors.geometry_is_identity({"rotate": 360})
+    assert not processors.geometry_is_identity({"rotate": 90})
+    with pytest.raises(ValueError):
+        processors.normalize_geometry({"rotate": 45})

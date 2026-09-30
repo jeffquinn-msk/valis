@@ -31,6 +31,12 @@ LoMaMatcher
     :members: __init__
     :show-inheritance:
 
+RoMaV2Matcher
+--------------
+.. autoclass:: valis.feature_matcher::RoMaV2Matcher
+    :members: __init__, match_images
+    :show-inheritance:
+
 SuperPointAndGlue
 ------------------
 .. autoclass:: valis.feature_matcher::SuperPointAndGlue

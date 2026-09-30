@@ -121,7 +121,8 @@ function updateResInfo(side) {
   const s = state.side[side];
   const info = $(`.panel[data-side="${side}"] .res-info`);
   if (!s.preview || !s.native) { info.textContent = ""; return; }
-  const scale = s.preview.iw / s.native.w;
+  // longest sides, so a 90° rotation of the moving image doesn't skew it
+  const scale = Math.max(s.preview.iw, s.preview.ih) / Math.max(s.native.w, s.native.h);
   info.textContent =
     `working image ${s.preview.iw} × ${s.preview.ih} px ` +
     `(native ${s.native.w} × ${s.native.h}, ${(scale * 100).toPrecision(3)}%)` +
@@ -231,10 +232,8 @@ function buildMatcherControls() {
 }
 
 function buildAlignControls() {
-  // The pre-aligned check runs at the valis resolution, so changing it
-  // invalidates the matches; min matches only re-gates the Align button.
   buildControlGrid($(".align-grid"), state.schema.alignment, state.align,
-    (key) => (key === "valis_resolution" ? clearMatchOverlay() : updateAlignButton()));
+    updateAlignButton);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +307,6 @@ function clearMatchOverlay() {
   const ctx = ov.getContext("2d");
   ctx.clearRect(0, 0, ov.width, ov.height);
   $("#match-readout").textContent = "";
-  $("#prealign-check").hidden = true;
   state.lastMatch = null;
   state.matchSeq += 1; // an in-flight match is now stale
   updateAlignButton();
@@ -324,26 +322,16 @@ function updateAlignButton() {
   if (state.aligning) return;
   const m = state.lastMatch;
   const need = state.align.min_matches;
-  const pre = m && m.prealigned;
-  const n = pre ? pre.n_filtered : 0;
-  btn.disabled = !pre || n < need;
+  btn.disabled = !m || m.n_filtered < need;
   btn.title = !m
     ? "Run keypoint detection first; alignment starts from its matches"
-    : !pre
-      ? "Too few preview matches to pre-align the moving image"
-      : n < need
-        ? `Pre-aligned check found ${n} matches; min matches is ${need}`
-        : "";
+    : m.n_filtered < need
+      ? `Only ${m.n_filtered} matches; min matches is ${need}`
+      : "";
   if (m) {
     $("#match-readout").textContent =
-      `Preview: ${m.n_filtered} filtered / ${m.n_total} total matches` +
-      (pre ? "" : " — too few to pre-align");
-  }
-  if (pre) {
-    $("#prealign-readout").textContent =
-      `${n} filtered / ${pre.n_total} total matches at ` +
-      `${pre.size[0]} × ${pre.size[1]} px (valis resolution ${pre.valis_resolution})` +
-      (n < need ? ` — below min matches (${need})` : ` — min matches ${need} ✓`);
+      `${m.n_filtered} filtered / ${m.n_total} total matches` +
+      (m.n_filtered < need ? ` — below min matches (${need})` : "");
   }
 }
 
@@ -370,7 +358,6 @@ async function runMatch() {
         size: state.side.reference.res.size,
       },
       matcher: state.matcher,
-      valis_resolution: state.align.valis_resolution,
     });
     const res = await api(`/api/match/${state.sessionId}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body,
@@ -379,10 +366,6 @@ async function runMatch() {
     if (seq !== state.matchSeq) return; // settings changed while matching
     state.lastMatch = data;
     drawMatches(data);
-    if (data.prealigned) {
-      $("#prealign-img").src = `data:image/png;base64,${data.prealigned.overlay_png}`;
-      $("#prealign-check").hidden = false;
-    }
     updateAlignButton();
   } catch (e) {
     toast(`Matching failed: ${e.message}`);
@@ -489,6 +472,7 @@ async function runAlignment() {
   const body = JSON.stringify({
     match_id: state.lastMatch.match_id,
     min_matches: state.align.min_matches,
+    valis_resolution: state.align.valis_resolution,
   });
   try {
     const res = await api(`/api/align/${state.sessionId}`, {
@@ -673,6 +657,15 @@ async function showResult(jobId) {
       gestureSettingsMouse: { clickToZoom: false },
       tileSources: [moving],
     });
+    // One slider fades between the two: 0 = moving only, 1 = reference
+    // only, 0.5 = both at half opacity.
+    const mix = () => parseFloat($("#opacity").value);
+    const applyMix = () => {
+      const mov = viewer.world.getItemAt(0);
+      const ref = viewer.world.getItemAt(1);
+      if (mov) mov.setOpacity(1 - mix());
+      if (ref) ref.setOpacity(mix());
+    };
     state.osdViewer = viewer;
     // Tint the grayscale planes (moving = green, reference = magenta) and add
     // them, so aligned tissue reads white and misalignment shows colored fringes.
@@ -688,15 +681,12 @@ async function showResult(jobId) {
     viewer.addHandler("open", () => {
       viewer.addTiledImage({
         tileSource: reference,
-        opacity: parseFloat($("#opacity").value),
         compositeOperation: "lighter",
         index: 1,
+        success: applyMix,
       });
     });
-    $("#opacity").oninput = (e) => {
-      const item = viewer.world.getItemAt(1);
-      if (item) item.setOpacity(parseFloat(e.target.value));
-    };
+    $("#opacity").oninput = applyMix;
   } catch (e) {
     toast(`Could not open result viewer: ${e.message}`);
   }

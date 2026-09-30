@@ -30,7 +30,7 @@
             <select class="processor-select"></select>
           </label>
           <div class="params"></div>
-          <h3 class="geometry-title">Flip / shift (before keypoints)</h3>
+          <h3 class="geometry-title">Flip / rotate (before keypoints)</h3>
           <div class="params geometry"></div>
         </div>
 
@@ -58,14 +58,11 @@
 
       <div id="align-controls">
         <h3>Alignment</h3>
-        <p class="muted hint">The matches shown above pre-align the moving image
-          (coarse: fixes flips, rotation, offset). valis then runs its own rigid
-          + non-rigid registration at the valis resolution, with the same
-          preprocessing and matcher. Keypoint detection also runs that check:
-          the pre-aligned pair at the valis resolution, the start of valis's
-          rigid step. Its match count must reach min matches. Changing any
-          setting clears the matches; re-run keypoint detection before
-          aligning.</p>
+        <p class="muted hint">On Align, the matches shown above pre-align the
+          moving image (coarse: fixes flips, rotation, offset); valis then runs
+          its own rigid + non-rigid registration at the valis resolution.
+          Changing any setting clears the matches; re-run keypoint detection
+          before aligning.</p>
         <div class="matcher-grid align-grid"></div>
       </div>
 
@@ -73,16 +70,6 @@
         <button id="match-btn" disabled>Run Keypoint Detection</button>
         <button id="align-btn" disabled>Run Alignment</button>
         <span id="match-readout" class="muted"></span>
-      </div>
-
-      <div id="prealign-check" hidden>
-        <h3>Pre-aligned check — what valis's rigid step starts from</h3>
-        <div id="prealign-readout" class="muted"></div>
-        <img id="prealign-img" alt="Pre-aligned moving (green) over reference (magenta)" />
-        <div class="legend muted">
-          <span class="swatch" style="background:#0f0"></span>Moving (pre-aligned, processed)
-          <span class="swatch" style="background:#f0f"></span>Reference (processed)
-        </div>
       </div>
     </section>
 
@@ -94,8 +81,10 @@
           <span class="swatch" style="background:#f0f"></span>Reference
         </span>
         <label class="ctrl inline">
-          <span>Reference opacity</span>
-          <input id="opacity" type="range" min="0" max="1" step="0.05" value="1" />
+          <span>Moving</span>
+          <input id="opacity" type="range" min="0" max="1" step="0.05" value="0.5"
+            title="Fade between the moving (left) and reference (right) images" />
+          <span>Reference</span>
         </label>
         <button id="back-btn">← Back to tuning</button>
       </div>

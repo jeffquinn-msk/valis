@@ -657,6 +657,20 @@ wheels = [
 ]
 
 [[package]]
+name = "fused-local-corr"
+version = "0.3.210"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/cc/65a5fc9df3992736e3b017fdbbd2dc0d18f87f5d9522b20da86363ac8b10/fused_local_corr-0.3.210-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:776489d90da0c3e559790c48579f2a03a17dc0565c32bf4ae8034a23ac80c2f5", size = 298890, upload-time = "2026-04-04T20:12:06.054Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/5a/22c62e5397f663f5e0adccbd2ce651afae4bb38bb4e4adec2cc242795bea/fused_local_corr-0.3.210-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fa017fb2915ffd1f9aa53d3d9006d2bc5df976462207689fa338727f56d2b608", size = 299866, upload-time = "2026-04-04T20:12:07.772Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/0d/9ec5c3967fa65d69128322aad253b7e03339f25b8486e254d16857ff2138/fused_local_corr-0.3.210-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7fb91872d52fc50eb76a4b2fbd1e697a63630506ee82a9ca8c6d53a3fb5330b8", size = 300323, upload-time = "2026-04-04T20:12:09.457Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2168,6 +2182,24 @@ wheels = [
 ]
 
 [[package]]
+name = "romav2"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "fused-local-corr", marker = "sys_platform == 'linux'" },
+    { name = "pillow" },
+    { name = "rich" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e5/b3/f3688a9b3355ed29c23dd921d46af09a31169539d55e470ac052e1196a26/romav2-2.0.1.tar.gz", hash = "sha256:30f53039db047c6b46244824ea79c06b65945d7633d6a4905de02a539f2ac80e", size = 37098, upload-time = "2026-08-30T23:55:17.852Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/25/6a5c0e37d34a80ba6ee7ad9fa9d1d2c5b5e11d3800e1faf2a4cbad57e916/romav2-2.0.1-py3-none-any.whl", hash = "sha256:4acdc8fed7ba212cefc7f31e9fa4ee46bd7a38901445a92b7f7f59259c2f6783", size = 50619, upload-time = "2026-08-30T23:55:16.828Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.15.12"
 source = { registry = "https://pypi.org/simple" }
@@ -3010,12 +3042,14 @@ dependencies = [
 dl = [
     { name = "einops" },
     { name = "kornia" },
+    { name = "romav2" },
     { name = "torch" },
     { name = "torchvision" },
 ]
 full = [
     { name = "einops" },
     { name = "kornia" },
+    { name = "romav2" },
     { name = "torch" },
     { name = "torchvision" },
 ]
@@ -3023,6 +3057,7 @@ web = [
     { name = "einops" },
     { name = "fastapi" },
     { name = "kornia" },
+    { name = "romav2" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "uvicorn", extra = ["standard"] },
@@ -3061,6 +3096,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.3.0" },
     { name = "pqdm", specifier = ">=0.2.0,<1.0.0" },
     { name = "pyvips", specifier = ">2.2.1" },
+    { name = "romav2", marker = "extra == 'dl'", specifier = ">=2.0.1" },
     { name = "scikit-image", specifier = ">=0.24.0,<1.0.0" },
     { name = "scikit-learn", specifier = ">=1.2.0,<2.0.0" },
     { name = "scipy", specifier = ">=1.10.0,<2.0.0" },

@@ -30,6 +30,11 @@ LoMa (DaD + DeDoDe-G)
 .. autoclass:: valis.feature_detectors::LoMaFD
     :show-inheritance:
 
+RoMa v2
+--------
+.. autoclass:: valis.feature_detectors::RoMaV2FD
+    :show-inheritance:
+
 KorniaFD
 ---------
 .. autoclass:: valis.feature_detectors::KorniaFD

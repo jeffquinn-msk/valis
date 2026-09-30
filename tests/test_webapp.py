@@ -257,7 +257,7 @@ def test_align_uses_exactly_the_displayed_matches(client, monkeypatch):
         "ransac_thresh": 5,
         "filter_method": "ransac",
     }
-    geometry = {"flip_h": False, "flip_v": True, "tx": 5, "ty": -3}
+    geometry = {"flip_h": False, "flip_v": True, "rotate": "90"}
     match = client.post(
         f"/api/match/{sid}",
         json={
@@ -266,17 +266,18 @@ def test_align_uses_exactly_the_displayed_matches(client, monkeypatch):
             },
             "reference": {"processor": "fluorescence", "params": {}, "size": 96},
             "matcher": matcher,
-            "valis_resolution": 1024,
         },
     ).json()
     assert max(match["image_size"]) == 128
     assert max(match["reference_size"]) == 96
-    assert match["prealigned"]["n_filtered"] == 40
-    assert match["prealigned"]["valis_resolution"] == 1024
 
     job_id = client.post(
         f"/api/align/{sid}",
-        json={"match_id": match["match_id"], "min_matches": 10},
+        json={
+            "match_id": match["match_id"],
+            "min_matches": 10,
+            "valis_resolution": 1024,
+        },
     ).json()["job_id"]
     status = _wait_for_job(client, job_id)
     assert status["state"] == "done", status
@@ -290,7 +291,6 @@ def test_align_uses_exactly_the_displayed_matches(client, monkeypatch):
     assert captured["image_geometry"] == geometry
     assert captured["image_stain"] == "od"
     assert captured["max_processed_image_dim_px"] == 1024
-    assert captured["min_rigid_matches"] == 10
 
 
 def test_align_requires_a_displayed_match(client):
@@ -323,41 +323,6 @@ def test_align_refuses_below_min_matches(client, monkeypatch):
     assert status["state"] == "error"
     assert "5 matches" in status["message"]
     assert not called
-
-
-def test_prealigned_check_warps_moving_into_reference_frame(
-    client, data_root, monkeypatch
-):
-    """With the same slide on both sides and identity matches, the pre-aligned
-    moving image valis would see must equal the reference."""
-    calls = []
-
-    def fake(img1, img2, **kwargs):
-        calls.append((img1, img2))
-        xy = np.array([[10.0, 10.0], [100.0, 20.0], [30.0, 110.0], [90.0, 100.0]])
-        return xy, xy.copy(), 4, 4
-
-    monkeypatch.setattr(webapp_app.matching, "detect_and_match", fake)
-    sid = client.post(
-        "/api/session",
-        json={"image_path": "moving.ome.tif", "reference_path": "moving.ome.tif"},
-    ).json()["session_id"]
-    res = client.post(
-        f"/api/match/{sid}",
-        json={
-            "image": {"processor": "luminosity", "params": {}},
-            "reference": {"processor": "luminosity", "params": {}},
-            "size": 128,
-            "valis_resolution": 200,
-        },
-    )
-    assert res.status_code == 200, res.text
-    assert res.json()["prealigned"]["size"] == [167, 200]
-    mov, ref = calls[1]
-    assert mov.shape == ref.shape
-    inner = (slice(2, -2), slice(2, -2))
-    diff = np.abs(mov[inner].astype(float) - ref[inner].astype(float))
-    assert diff.mean() < 2.0, diff.mean()
 
 
 def test_preview_affine_moves_pixels_to_their_matches():
@@ -393,6 +358,25 @@ def test_preview_affine_moves_pixels_to_their_matches():
     np.testing.assert_allclose([xs.mean(), ys.mean()], expected, atol=0.75)
 
 
+def test_preview_affine_uses_rotated_moving_size():
+    """A 90 deg rotation swaps the moving image's width and height; the
+    preview was matched on the rotated thumbnail, so the lift to full res
+    must use the rotated size. Here reference = rotated moving, so A = I."""
+    from valis.interactive import pipeline, processors
+
+    geometry = {"rotate": 90}
+    mov_wh = (240, 200)  # before rotation
+    rot_wh = processors.geometry_output_wh(geometry, mov_wh)
+    assert rot_wh == (200, 240)
+    xy = np.random.default_rng(4).uniform(5, 45, size=(30, 2))
+    thumb = np.zeros((rot_wh[1] // 4, rot_wh[0] // 4), np.uint8)
+    preview = pipeline.PreviewMatch(
+        kp_moving=xy, kp_reference=xy.copy(), moving_img=thumb, reference_img=thumb
+    )
+    A, _ = pipeline.preview_affine_full_res(preview, rot_wh, rot_wh)
+    np.testing.assert_allclose(A, np.eye(3), atol=1e-6)
+
+
 def test_build_matcher_uses_requested_settings():
     from valis import feature_detectors, feature_matcher
     from valis.interactive import pipeline
@@ -419,6 +403,91 @@ def test_loma_matcher_rejects_other_features():
         feature_matcher.LoMaMatcher(feature_detectors.DiskFD(num_features=512))
     with pytest.raises(ValueError, match="unknown matcher"):
         pipeline.build_detector(matcher="superglue")
+
+
+def test_romav2_matcher_rejects_other_features():
+    """RoMa v2's model lives in RoMaV2FD; any other detector can't match."""
+    from valis import feature_detectors, feature_matcher
+
+    with pytest.raises(TypeError, match="RoMaV2FD"):
+        feature_matcher.RoMaV2Matcher(feature_detectors.DiskFD(num_features=512))
+
+
+def _fake_romav2_fd(sampled):
+    """A RoMaV2FD whose model returns ``sampled`` (N, 4) normalized matches,
+    without loading any weights."""
+    import torch
+    from valis import feature_detectors
+
+    class FakeModel:
+        def match(self, img_a, img_b):
+            assert img_a.shape[1] == 3 and img_b.shape[1] == 3  # RGB tensors
+            return {}
+
+        def sample(self, preds, num):
+            m = torch.as_tensor(sampled, dtype=torch.float32)[:num]
+            return m, torch.full((len(m),), 0.9), None, None
+
+    fd = object.__new__(feature_detectors.RoMaV2FD)
+    feature_detectors.FeatureDD.__init__(fd)
+    fd.device, fd.model, fd.num_features = torch.device("cpu"), FakeModel(), 100
+    return fd
+
+
+def test_romav2_model_is_loaded_once_across_match_counts(monkeypatch):
+    """Changing max keypoints only changes RoMa v2's sample count; it must
+    not load another copy of the model."""
+    from valis.webapp import matching
+
+    built = []
+
+    def fake_build(detector, max_keypoints, matcher):
+        built.append(max_keypoints)
+        return _fake_romav2_fd([])
+
+    monkeypatch.setattr(matching, "_detectors", {})
+    monkeypatch.setattr(matching.pipeline, "build_detector", fake_build)
+    det_a, _ = matching._get_detector("disk", 1024, "romav2")
+    det_b, _ = matching._get_detector("dedode", 4096, "romav2")
+    assert det_a is det_b and built == [1024]
+    assert det_b.num_features == 4096
+
+
+def test_romav2_fd_returns_pixel_centre_coordinates():
+    # normalized -1 / +1 are pixel edges: the first/last pixel centres of a
+    # 100 px wide image are at -1 + 1/100 and 1 - 1/100.
+    fd = _fake_romav2_fd([[-0.99, -0.98, 0.99, 0.0]])
+    kp1, kp2, cert = fd.match(np.zeros((50, 100), np.uint8), np.zeros((20, 100), np.uint8))
+    np.testing.assert_allclose(kp1, [[0.0, 0.0]], atol=1e-4)
+    np.testing.assert_allclose(kp2, [[99.0, 9.5]], atol=1e-4)
+    np.testing.assert_allclose(cert, [0.9])
+    kp, desc = fd.detect_and_compute(np.zeros((50, 100), np.uint8))
+    assert kp.shape == (0, 2) and desc.shape == (0, 1)
+
+
+def test_romav2_matcher_matches_images_not_keypoints():
+    """Keypoints passed in (valis passes RoMaV2FD's empty ones) are ignored;
+    the dense matches come back as MatchInfo and go through RANSAC."""
+    from valis import feature_matcher
+
+    rng = np.random.default_rng(0)
+    xy1 = rng.uniform(-0.9, 0.9, size=(60, 2))
+    xy2 = xy1 * 0.5 + 0.1  # a similarity transform
+    xy2[:5] = rng.uniform(-0.9, 0.9, size=(5, 2))  # outliers
+    mat = feature_matcher.RoMaV2Matcher(
+        _fake_romav2_fd(np.hstack([xy1, xy2])),
+        match_filter_method=feature_matcher.RANSAC_NAME,
+        ransac_thresh=2,
+    )
+    img = np.zeros((200, 200), np.uint8)
+    empty_kp, empty_desc = np.empty((0, 2)), np.empty((0, 1))
+    raw12, filt12, raw21, filt21 = mat.match_images(
+        img, img, desc1=empty_desc, kp1_xy=empty_kp, desc2=empty_desc, kp2_xy=empty_kp
+    )
+    assert raw12.n_matches == 60
+    assert 50 <= filt12.n_matches <= 55
+    np.testing.assert_allclose(raw12.match_distances, 0.1, atol=1e-6)
+    np.testing.assert_array_equal(filt21.matched_kp1_xy, filt12.matched_kp2_xy)
 
 
 def test_geotiff_plugin_worker_is_served(client):
@@ -484,6 +553,8 @@ def test_preprocess_applies_moving_geometry(client):
     plain = png("image", {})
     flipped = png("image", {"flip_h": True})
     np.testing.assert_array_equal(flipped, plain[:, ::-1])
+    rotated = png("image", {"rotate": "90"})
+    np.testing.assert_array_equal(rotated, np.rot90(plain, k=-1))
     # the reference defines the output frame: geometry is ignored there
     np.testing.assert_array_equal(
         png("reference", {"flip_h": True}), png("reference", {})

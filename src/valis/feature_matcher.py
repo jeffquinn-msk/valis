@@ -1940,3 +1940,76 @@ class LoMaMatcher(LightGlueMatcher):
         match_distances = 1 - mscores0[idx1]
 
         return match_distances, idxs
+
+
+class RoMaV2Matcher(LightGlueMatcher):
+    """
+    RoMa v2 dense feature matcher. Unlike LightGlue and LoMa it does not
+    match per-image keypoints: it matches the two images directly and samples
+    correspondences from the dense warp, so any keypoints and descriptors
+    passed to ``match_images`` are ignored. Must be paired with
+    ``feature_detectors.RoMaV2FD``, which holds the model and the number of
+    correspondences to sample; defaults to that detector if none is given.
+    Matches are then filtered with ``match_filter_method``, as for LightGlue.
+
+    Citation
+    ---------
+    Johan Edstedt, et al. RoMa v2: Harder Better Faster Denser Feature
+    Matching. arXiv 2511.15706, 2025.
+
+    """
+
+    def __init__(
+        self,
+        feature_detector=None,
+        match_filter_method=DEFAULT_MATCH_FILTER,
+        ransac_thresh=DEFAULT_RANSAC,
+        *args,
+        **kwargs,
+    ):
+        if feature_detector is None and _TORCH_AVAILABLE:
+            feature_detector = feature_detectors.RoMaV2FD()
+        super().__init__(
+            feature_detector=feature_detector,
+            match_filter_method=match_filter_method,
+            ransac_thresh=ransac_thresh,
+            *args,
+            **kwargs,
+        )
+
+    def set_fd(self, feature_detector):
+        if not isinstance(feature_detector, feature_detectors.RoMaV2FD):
+            raise TypeError(
+                f"{self.__class__.__name__} requires a "
+                f"{feature_detectors.RoMaV2FD.__name__}, got "
+                f"{feature_detector.__class__.__name__}"
+            )
+        self._feature_detector = feature_detector
+        self.feature_name = feature_detector.__class__.__name__
+        self.metric_name = "romav2"
+        # Model weights live in the detector
+        self.device = feature_detector.device
+
+    feature_detector = property(
+        fget=LightGlueMatcher.get_fd,
+        fset=set_fd,
+        doc="Get and set feature detector. Must be a RoMaV2FD, which holds the model",
+    )
+
+    def _match_kp_desc(self, kp1_xy, desc1, hw1, kp2_xy, desc2, hw2):
+        # match_images hands over already-corresponding points, with each
+        # match's certainty as its one-element "descriptor".
+        idx = np.arange(len(kp1_xy))
+        return 1 - desc1[:, 0], np.column_stack([idx, idx])
+
+    def match_images(self, img1, img2, *args, **kwargs):
+        """Densely match ``img1`` (fixed) with ``img2`` (moving). Keypoint,
+        descriptor and rotation arguments are ignored. Returns the same four
+        ``MatchInfo`` as ``LightGlueMatcher.match_images``; "distance" is
+        1 - RoMa v2's certainty.
+        """
+        kp1_xy, kp2_xy, certainty = self.feature_detector.match(img1, img2)
+        desc = certainty.reshape(-1, 1)
+        return super().match_images(
+            img1, img2, desc1=desc, kp1_xy=kp1_xy, desc2=desc, kp2_xy=kp2_xy
+        )
