@@ -61,8 +61,8 @@ def detect_and_match(
     LightGlue or LoMa, or match them densely with RoMa v2.
 
     Returns ``(matched_kp1_xy, matched_kp2_xy, n_total, n_filtered)`` where the
-    kp arrays are the (filtered, unless ``filter_method == "none"``) matched
-    coordinate pairs in thumbnail pixel space.
+    kp arrays are the matched coordinate pairs left after ``filter_method``
+    (all of them for ``"none"``), in thumbnail pixel space.
 
     Keypoints are pre-detected and passed explicitly so ``match_images`` takes
     its no-internal-rotation path.
@@ -81,15 +81,13 @@ def detect_and_match(
             img1_u8, img2_u8, desc1=d1, kp1_xy=kp1, desc2=d2, kp2_xy=kp2
         )
 
+    # The matcher's own filtered output: the same filter valis's rigid step
+    # runs (with "none" it keeps every match).
     n_total = int(len(match12.matched_kp1_xy))
-    if filter_method == "none":
-        chosen = match12
-    else:
-        chosen = filt12
-    n_filtered = int(len(chosen.matched_kp1_xy))
+    n_filtered = int(len(filt12.matched_kp1_xy))
     return (
-        np.asarray(chosen.matched_kp1_xy, dtype=float),
-        np.asarray(chosen.matched_kp2_xy, dtype=float),
+        np.asarray(filt12.matched_kp1_xy, dtype=float),
+        np.asarray(filt12.matched_kp2_xy, dtype=float),
         n_total,
         n_filtered,
     )

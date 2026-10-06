@@ -132,3 +132,29 @@ def test_geometry_semantics():
     assert not processors.geometry_is_identity({"rotate": 90})
     with pytest.raises(ValueError):
         processors.normalize_geometry({"rotate": 45})
+
+
+def test_fluorescence_blur_invert_matches_uninverted_original(tmp_path):
+    """invert on an inverted image must give what plain processing gives on
+    the original, and the tissue mask valis builds afterwards must follow."""
+    rng = np.random.default_rng(0)
+    img = np.zeros((64, 64), np.uint8)
+    img[16:48, 16:48] = rng.integers(80, 255, size=(32, 32))  # bright tissue
+    inverted = 255 - img
+
+    import pyvips
+
+    src_f = str(tmp_path / "src.tif")  # the processor opens its source file
+    pyvips.Image.new_from_array(img).write_to_file(src_f)
+
+    def run(arr, **params):
+        proc = processors.FluorescenceBlur(arr, src_f=src_f, level=0, series=0)
+        return proc.process_image(**params), proc.create_mask()
+
+    plain, plain_mask = run(img, sigma=1)
+    flipped, flipped_mask = run(inverted, sigma=1, invert=True)
+    np.testing.assert_allclose(flipped.astype(int), plain.astype(int), atol=1)
+    np.testing.assert_array_equal(flipped_mask, plain_mask)
+    assert {"name": "invert", "type": "bool", "default": False} in (
+        processors.PARAM_SCHEMA["fluorescence-blur"]["params"]
+    )

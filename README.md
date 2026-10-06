@@ -64,7 +64,7 @@ In `--output-dir`:
 | `--detector` | `disk` | Feature detector used with LightGlue: `disk` or `dedode`. |
 | `--max-keypoints` | `7500` | Maximum keypoints per image (with `romav2`, matches sampled per image pair). |
 | `--ransac-thresh` | `7` | Outlier-filter reprojection threshold, in pixels. |
-| `--filter-method` | `magsac` | Outlier filter for matches: `magsac` or `ransac`. |
+| `--filter-method` | `magsac` | Geometric outlier filter for matches: `magsac`, `ransac`, or `none` to keep every match (e.g. RoMa v2's dense matches on deformed tissue). |
 
 `--matcher loma-b` swaps LightGlue for [LoMa-B](https://github.com/davnords/LoMa). LoMa
 brings its own DaD keypoints and DeDoDe-G descriptors, so it ignores `--detector`. Its

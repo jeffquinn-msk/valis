@@ -116,9 +116,8 @@ def get_parser():
     )
     parser.add_argument(
         "--filter-method",
-        # "none" only changes what the web preview displays; not meaningful here.
-        choices=[o for o in schema["filter_method"]["options"] if o != "none"],
-        help="Match filter "
+        choices=schema["filter_method"]["options"],
+        help="Geometric outlier filter for matches; 'none' keeps every match "
         f"(default: {schema['filter_method']['default']}).",
     )
     return parser

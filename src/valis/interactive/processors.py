@@ -194,6 +194,9 @@ class FluorescenceBlur(Fluorescence):
     Steps run in this order; each is a no-op at its default except the
     Gaussian blur:
 
+    0. ``invert`` — flip intensities first, for images where nuclei are dark
+       on a bright background (e.g. inverted DAPI), so every later step sees
+       bright nuclei.
     1. ``bg_sigma`` — background subtraction: subtract a heavily
        Gaussian-blurred copy of the image to flatten uneven illumination /
        autofluorescence haze (0 = off).
@@ -214,9 +217,22 @@ class FluorescenceBlur(Fluorescence):
     and ``sigma=0`` this is identical to plain ``fluorescence``.
     """
 
+    def create_mask(self):
+        if not getattr(self, "_invert", False):
+            return super().create_mask()
+        from valis.preprocessing import create_tissue_mask_from_multichannel
+
+        img = self.image
+        if img.ndim == 3:
+            img = img.mean(axis=-1)
+        img = img.astype(np.float32)
+        _, tissue_mask = create_tissue_mask_from_multichannel(img.max() + img.min() - img)
+        return tissue_mask
+
     def process_image(
         self,
         *args,
+        invert: bool = False,
         bg_sigma: float = 0.0,
         median: int = 0,
         sigma: float = 1.5,
@@ -236,6 +252,10 @@ class FluorescenceBlur(Fluorescence):
         if img.ndim == 3:
             img = img.mean(axis=-1)
         img = img.astype(np.float32)
+        # Remembered so valis's later create_mask() finds tissue, not background.
+        self._invert = bool(invert)
+        if invert:
+            img = img.max() + img.min() - img
         if bg_sigma > 0:
             img = np.maximum(img - gaussian_filter(img, bg_sigma), 0.0)
         median = int(median)
@@ -535,6 +555,7 @@ PARAM_SCHEMA = {
     "fluorescence-blur": {
         "input": "gray",
         "params": [
+            {"name": "invert", "type": "bool", "default": False},
             {
                 "name": "bg_sigma",
                 "type": "float",

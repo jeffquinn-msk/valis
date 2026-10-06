@@ -51,6 +51,6 @@ def test_matcher_flag_selects_romav2(cli):
     assert cfg["matcher"] == "romav2"
 
 
-def test_filter_method_rejects_preview_only_none(cli):
-    with pytest.raises(SystemExit):
-        _parse(cli, "--filter-method", "none")
+def test_filter_method_accepts_none(cli):
+    cfg = cli.matcher_cfg_from_args(_parse(cli, "--filter-method", "none"))
+    assert cfg["filter_method"] == "none"

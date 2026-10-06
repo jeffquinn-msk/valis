@@ -388,9 +388,11 @@ def test_build_matcher_uses_requested_settings():
     assert isinstance(mat.feature_detector, feature_detectors.DiskFD)
     assert mat.match_filter_method == feature_matcher.RANSAC_NAME
     assert mat.ransac_thresh == 5
-    # "none" is preview-only; the matcher itself still filters with MAGSAC.
+    # "none" reaches valis's matcher too: the preview's filter is binding.
     none_mat = pipeline.build_matcher(filter_method="none")
-    assert none_mat.match_filter_method == feature_matcher.USAC_MAGSAC_NAME
+    assert none_mat.match_filter_method == feature_matcher.NO_MATCH_FILTER_NAME
+    with pytest.raises(ValueError, match="unknown filter method"):
+        pipeline.build_matcher(filter_method="gms")
 
 
 def test_loma_matcher_rejects_other_features():
@@ -486,6 +488,13 @@ def test_romav2_matcher_matches_images_not_keypoints():
     )
     assert raw12.n_matches == 60
     assert 50 <= filt12.n_matches <= 55
+
+    # No geometric filter: every match is kept, outliers included.
+    mat.match_filter_method = feature_matcher.NO_MATCH_FILTER_NAME
+    raw12, filt12, _, filt21 = mat.match_images(img, img)
+    assert filt12.n_matches == raw12.n_matches == 60
+    np.testing.assert_array_equal(filt12.matched_kp1_xy, raw12.matched_kp1_xy)
+    np.testing.assert_array_equal(filt21.matched_kp1_xy, raw12.matched_kp2_xy)
     np.testing.assert_allclose(raw12.match_distances, 0.1, atol=1e-6)
     np.testing.assert_array_equal(filt21.matched_kp1_xy, filt12.matched_kp2_xy)
 

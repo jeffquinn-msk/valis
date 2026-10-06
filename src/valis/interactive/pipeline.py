@@ -62,12 +62,12 @@ SPARSE_SWEEP = [
 ]
 
 # User-facing filter names (see ``processors.MATCHER_SCHEMA``) -> valis names.
-# "none" only affects which matches the web preview displays; the matcher
-# itself always filters (rigid registration needs inliers), so it falls back
-# to MAGSAC.
+# The same filter applies to the web preview and to valis's rigid matching,
+# so "none" keeps every match in both.
 MATCH_FILTER_NAMES = {
     "magsac": feature_matcher.USAC_MAGSAC_NAME,
     "ransac": feature_matcher.RANSAC_NAME,
+    "none": feature_matcher.NO_MATCH_FILTER_NAME,
     # No GMS: LightGlueMatcher filters via filter_matches_ransac, which only
     # knows the RANSAC family.
 }
@@ -116,6 +116,8 @@ def build_matcher(
     full registration matches with the same settings the user tuned.
     ``feature_detector`` reuses an existing detector instead of building one.
     """
+    if filter_method not in MATCH_FILTER_NAMES:
+        raise ValueError(f"unknown filter method: {filter_method!r}")
     if feature_detector is None:
         feature_detector = build_detector(detector, max_keypoints, matcher)
     matcher_cls = {
@@ -124,9 +126,7 @@ def build_matcher(
     }.get(matcher, feature_matcher.LightGlueMatcher)
     return matcher_cls(
         feature_detector=feature_detector,
-        match_filter_method=MATCH_FILTER_NAMES.get(
-            filter_method, feature_matcher.USAC_MAGSAC_NAME
-        ),
+        match_filter_method=MATCH_FILTER_NAMES[filter_method],
         ransac_thresh=int(ransac_thresh),
     )
 

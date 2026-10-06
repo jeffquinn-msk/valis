@@ -54,6 +54,12 @@ SUPERGLUE_FILTER_NAME = "superglue"
 only SuperGlue will be used to remove poor matches
 """
 
+NO_MATCH_FILTER_NAME = "none"
+"""str: If a LightGlueMatcher's (or LoMaMatcher's / RoMaV2Matcher's)
+match_filter_method is set to this, all matches are kept: no geometric
+(RANSAC-family) outlier filtering
+"""
+
 DEFAULT_MATCH_FILTER = USAC_MAGSAC_NAME
 """str: The defulat filter_method value, either RANSAC_NAME or GMS_NAME"""
 
@@ -1779,14 +1785,19 @@ class LightGlueMatcher(Matcher):
         )
 
         # # Remove outliers
-        filtered_matched_kp1_xy, filtered_matched_kp2_xy, good_matches_idx = (
-            filter_matches_ransac(
-                matched_kp1_xy,
-                matched_kp2_xy,
-                ransac_val=self.ransac_thresh,
-                method=self.match_filter_method,
+        if self.match_filter_method == NO_MATCH_FILTER_NAME:
+            filtered_matched_kp1_xy = matched_kp1_xy
+            filtered_matched_kp2_xy = matched_kp2_xy
+            good_matches_idx = np.arange(len(matched_kp1_xy))
+        else:
+            filtered_matched_kp1_xy, filtered_matched_kp2_xy, good_matches_idx = (
+                filter_matches_ransac(
+                    matched_kp1_xy,
+                    matched_kp2_xy,
+                    ransac_val=self.ransac_thresh,
+                    method=self.match_filter_method,
+                )
             )
-        )
 
         if len(good_matches_idx) > 0:
             filterd_match_distances = match_distances[good_matches_idx]
