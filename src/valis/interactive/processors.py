@@ -1,5 +1,5 @@
 """Preprocessors, thumbnail helpers, and the processor registry shared by the
-``align_two_images`` CLI and the interactive web app.
+``valis-align`` / ``valis-match`` CLIs and the interactive web app.
 
 This module deliberately imports ``valis`` (and nothing torch-related) at the top
 so that importing it never triggers the valis-before-torch segfault.

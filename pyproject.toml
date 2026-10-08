@@ -10,6 +10,8 @@ valis = ["superglue_models/weights/*", "loma_models/LICENSE", "webapp/static/**/
 
 [project.scripts]
 valis-webapp = "valis.webapp.__main__:main"
+valis-match = "valis.cli.match:main"
+valis-align = "valis.cli.align:main"
 
 [project]
 name = "valis"

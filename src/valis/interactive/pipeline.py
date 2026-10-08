@@ -1,5 +1,6 @@
 """The slow, full-registration alignment flow, extracted from
-``scripts/align_two_images.py`` so both the CLI and the web app can call it.
+the old ``scripts/align_two_images.py`` so both the ``valis-align`` CLI
+(:mod:`valis.cli.align`) and the web app can call it.
 
 The public entry point is :func:`run_alignment`. Lower-level helpers
 (``convert_16to8_bit``, ``write_ome_tiff``, ``check_and_correct_orientation``,
