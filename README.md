@@ -1,6 +1,7 @@
 See documentation for original project at https://valis.readthedocs.io/en/latest/.
 
-See `examples` for example usage of this fork.
+See `scripts` for example usage of this fork as a library, and
+[Command-line tools](#command-line-tools) for the `valis-match` and `valis-align` commands.
 
 ## Changes in this fork
 
@@ -9,6 +10,7 @@ See `examples` for example usage of this fork.
 - Fixed a bug causing program to crash in single cpu environments
 - Organized into a better python package structure so this can be used as a dependency in other python projects
 - Containerization
+- Command-line tools (`valis-match`, `valis-align`) and an interactive web app (`valis-webapp`) for aligning two images
 
 ## Running the smoketest
 
@@ -66,8 +68,7 @@ With `--output-dir`, it writes:
 ### Aligning two images: `valis-align`
 
 `valis-align` registers a moving image to a reference image (rigid + non-rigid) and
-writes the warped result as a pyramidal OME-TIFF. It replaces
-`scripts/align_two_images.py` and accepts all of that script's flags.
+writes the warped result as a pyramidal OME-TIFF.
 
 ```bash
 .venv/bin/valis-align \
