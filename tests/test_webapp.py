@@ -661,3 +661,38 @@ def test_result_plane_serves_each_page_separately(client, tmp_path):
         assert not any(".viewer" in f["path"] for f in listing["files"])
     finally:
         webapp_app._jobs.pop("planejob", None)
+
+
+def test_original_view_matches_processed_geometry(client):
+    # The "original" preview must have the processed preview's exact
+    # dimensions (incl. rotation) so keypoint dots land on the same pixels.
+    import io
+
+    from PIL import Image as PILImage
+
+    sid = client.post(
+        "/api/session",
+        json={"image_path": "moving.ome.tif", "reference_path": "reference.ome.tif"},
+    ).json()["session_id"]
+    geometry = {"flip_h": True, "flip_v": False, "rotate": 90}
+
+    orig = client.get(
+        f"/api/thumbnail/{sid}/image", params={"size": 128, **geometry}
+    )
+    assert orig.status_code == 200
+    orig_img = PILImage.open(io.BytesIO(orig.content))
+    assert orig_img.mode == "RGB"  # color image shown in color
+
+    pre = client.post(
+        f"/api/preprocess/{sid}/image",
+        json={"processor": "luminosity", "params": {}, "geometry": geometry, "size": 128},
+    )
+    assert orig_img.size == PILImage.open(io.BytesIO(pre.content)).size
+
+    plain = PILImage.open(io.BytesIO(
+        client.get(f"/api/thumbnail/{sid}/image", params={"size": 128}).content
+    ))
+    assert plain.size == orig_img.size[::-1]  # rotation swapped w/h
+
+    bad = client.get(f"/api/thumbnail/{sid}/image", params={"rotate": 45})
+    assert bad.status_code == 400

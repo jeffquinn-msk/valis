@@ -11,10 +11,16 @@ const state = {
     // Only the moving image has a geometric pre-transform; the reference
     // defines the aligned output's frame. ``res.size`` is the working
     // resolution (longest side, px) the image is preprocessed + matched at.
+    // ``view`` picks what the preview shows: the preprocessor output
+    // ("processed") or the untouched thumbnail ("original", RGB if color).
     image: {
       processor: null, params: {}, geometry: {}, res: {}, native: null, preview: null,
+      view: "processed",
     },
-    reference: { processor: null, params: {}, res: {}, native: null, preview: null },
+    reference: {
+      processor: null, params: {}, res: {}, native: null, preview: null,
+      view: "processed",
+    },
   },
   lastMatch: null,
   matchSeq: 0,
@@ -86,7 +92,7 @@ function buildProcessorControls(side) {
 
 function renderParams(side) {
   const panel = $(`.panel[data-side="${side}"]`);
-  const container = $(".params", panel);
+  const container = $(".proc-params", panel);
   container.innerHTML = "";
   const spec = state.schema.processors[state.side[side].processor];
   (spec ? spec.params : []).forEach((p) => {
@@ -256,17 +262,27 @@ async function preprocess(side) {
   if (!state.sessionId) return;
   const seq = (preprocessSeq[side] = (preprocessSeq[side] || 0) + 1);
   const s = state.side[side];
-  const body = JSON.stringify({
-    processor: s.processor, params: s.params, geometry: s.geometry, size: s.res.size,
-  });
   try {
-    const res = await api(`/api/preprocess/${state.sessionId}/${side}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body,
-    });
+    let res;
+    if (s.view === "original") {
+      // Same size + flip/rotate as the processed image, so keypoints line up.
+      const q = new URLSearchParams({ size: s.res.size });
+      Object.entries(s.geometry || {}).forEach(([k, v]) => q.set(k, v));
+      res = await api(`/api/thumbnail/${state.sessionId}/${side}?${q}`);
+    } else {
+      const body = JSON.stringify({
+        processor: s.processor, params: s.params, geometry: s.geometry, size: s.res.size,
+      });
+      res = await api(`/api/preprocess/${state.sessionId}/${side}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body,
+      });
+    }
     const blob = await res.blob();
     const img = await blobToImage(blob);
     if (seq !== preprocessSeq[side]) return;
     drawPreview(side, img);
+    // Switching views keeps the matches; redraw them on the new image.
+    if (state.lastMatch) drawMatches(state.lastMatch);
   } catch (e) {
     toast(`Preprocess (${side}) failed: ${e.message}`);
   }
@@ -833,6 +849,15 @@ async function init() {
   }
   buildMatcherControls();
   buildAlignControls();
+  SIDES.forEach((side) => {
+    $all(`input[name="view-${side}"]`).forEach((radio) => {
+      radio.onchange = () => {
+        if (!radio.checked) return;
+        state.side[side].view = radio.value;
+        preprocess(side);
+      };
+    });
+  });
 
   $("#open-btn").onclick = openBrowser;
   $("#browse-close").onclick = () => { $("#browse-modal").hidden = true; };

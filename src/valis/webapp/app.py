@@ -223,14 +223,32 @@ def api_session(payload: dict = Body(...)):
 
 
 @app.get("/api/thumbnail/{session_id}/{side}")
-def api_thumbnail(session_id: str, side: str, size: int = Query(DEFAULT_SIZE)):
+def api_thumbnail(
+    session_id: str,
+    side: str,
+    size: int = Query(DEFAULT_SIZE),
+    flip_h: bool = Query(False),
+    flip_v: bool = Query(False),
+    rotate: int = Query(0),
+):
     if side not in ("image", "reference"):
         raise HTTPException(status_code=400, detail="side must be image|reference")
     session = _get_session(session_id)
     v = session._vips_for(side)
     # Show RGB for color images, gray for single band.
     kind = "rgb" if v.bands >= 3 else "gray"
-    return _png_response(session.thumbs(side, size)[kind])
+    thumb = session.thumbs(side, size)[kind]
+    # Same pre-transform as /api/preprocess, so the original view lines up
+    # pixel-for-pixel with the processed one (and its keypoints).
+    geometry = _side_geometry(
+        side, {"geometry": {"flip_h": flip_h, "flip_v": flip_v, "rotate": rotate}}
+    )
+    try:
+        if not processors.geometry_is_identity(geometry):
+            thumb = processors.apply_geometry_array(thumb, geometry)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _png_response(thumb)
 
 
 @app.post("/api/preprocess/{session_id}/{side}")

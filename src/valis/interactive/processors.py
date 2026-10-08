@@ -283,6 +283,94 @@ class FluorescenceBlur(Fluorescence):
         return (img * 255).astype(np.uint8)
 
 
+class ColorRange(preprocessing.ImageProcesser):
+    """Extract one hue band of an RGB image into a greyscale image.
+
+    Standard HSV colour-range selection (as in OpenCV ``inRange``), with a
+    soft edge and an adjustable mapping to grey:
+
+    1. ``hue_center`` / ``hue_width`` — keep hues within ``hue_width / 2``
+       degrees of ``hue_center`` (0 = red, 60 = yellow, 120 = green,
+       180 = cyan, 240 = blue, 300 = magenta; wraps around 360).
+       ``softness`` ramps the weight linearly to 0 over that many extra
+       degrees instead of cutting hard.
+    2. ``sat_min`` / ``val_min`` / ``val_max`` — drop greyish (low
+       saturation, e.g. white brightfield background), near-black, or
+       blown-out pixels.
+    3. ``intensity`` — what a selected pixel's grey level is:
+       ``saturation`` (how strongly coloured), ``darkness`` (1 - value,
+       i.e. stain density in brightfield), ``value`` (brightness, for
+       fluorescence-like images) or ``mask`` (1 everywhere selected).
+       It is multiplied by the hue weight.
+    4. ``phi`` — stretch so this percentile of the selected pixels maps to
+       white; then ``gamma`` (< 1 lifts faint colour, > 1 suppresses it) and
+       ``invert``.
+    """
+
+    def create_mask(self):
+        from valis.preprocessing import create_tissue_mask_from_rgb
+
+        _, tissue_mask = create_tissue_mask_from_rgb(self.image)
+        return tissue_mask
+
+    def process_image(
+        self,
+        *args,
+        hue_center: float = 0.0,
+        hue_width: float = 60.0,
+        softness: float = 15.0,
+        sat_min: float = 0.15,
+        val_min: float = 0.05,
+        val_max: float = 1.0,
+        intensity: str = "saturation",
+        phi: float = 99.0,
+        gamma: float = 1.0,
+        invert: bool = False,
+        **kwargs,
+    ):
+        from skimage.color import rgb2hsv
+
+        img = self.image
+        if img.ndim != 3 or img.shape[2] < 3:
+            raise ValueError("ColorRange requires an RGB image")
+        rgb = img[..., :3]
+        if rgb.dtype != np.uint8:
+            rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+        hsv = rgb2hsv(rgb).astype(np.float32)
+        hue, sat, val = hsv[..., 0] * 360.0, hsv[..., 1], hsv[..., 2]
+
+        # Circular hue distance, then flat top + linear falloff.
+        d = np.abs(hue - (hue_center % 360.0))
+        d = np.minimum(d, 360.0 - d)
+        excess = d - hue_width / 2.0
+        if softness > 0:
+            weight = np.clip(1.0 - excess / softness, 0.0, 1.0)
+        else:
+            weight = (excess <= 0).astype(np.float32)
+        weight[(sat < sat_min) | (val < val_min) | (val > val_max)] = 0.0
+
+        if intensity == "saturation":
+            out = weight * sat
+        elif intensity == "darkness":
+            out = weight * (1.0 - val)
+        elif intensity == "value":
+            out = weight * val
+        elif intensity == "mask":
+            out = weight
+        else:
+            raise ValueError(f"unknown intensity {intensity!r}")
+
+        selected = out > 0
+        if selected.any():
+            hi = np.percentile(out[selected], phi)
+            out = np.clip(out / max(hi, 1e-6), 0.0, 1.0)
+        if gamma != 1.0:
+            out = np.power(out, gamma)
+        if invert:
+            out = 1.0 - out
+        return (out * 255).astype(np.uint8)
+
+
 class InvertedFluorescence(preprocessing.ImageProcesser):
     """Reverse the inversion on an 'inverted DAPI' (or similar) greyscale image
     so that nuclei come out bright — matching the convention of hematoxylin
@@ -437,6 +525,7 @@ PROCESSOR_REGISTRY = {
     "fluorescence": [Fluorescence, {}],
     "fluorescence-blur": [FluorescenceBlur, {}],
     "inverted-fluorescence": [InvertedFluorescence, {}],
+    "color-range": [ColorRange, {}],
     "od": [preprocessing.OD, {}],
     "colorful-standardizer": [preprocessing.ColorfulStandardizer, {}],
     "luminosity": [preprocessing.Luminosity, {}],
@@ -453,6 +542,7 @@ PROCESSOR_INPUT = {
     "fluorescence": "gray",
     "fluorescence-blur": "gray",
     "inverted-fluorescence": "gray",
+    "color-range": "rgb",
     "od": "rgb",
     "colorful-standardizer": "rgb",
     "luminosity": "rgb",
@@ -640,6 +730,85 @@ PARAM_SCHEMA = {
         ],
     },
     "inverted-fluorescence": {"input": "gray", "params": []},
+    "color-range": {
+        "input": "rgb",
+        "params": [
+            {
+                "name": "hue_center",
+                "label": "hue center (°)",
+                "type": "float",
+                "min": 0,
+                "max": 359,
+                "step": 1,
+                "default": 0,
+            },
+            {
+                "name": "hue_width",
+                "label": "hue width (°)",
+                "type": "float",
+                "min": 2,
+                "max": 180,
+                "step": 1,
+                "default": 60,
+            },
+            {
+                "name": "softness",
+                "label": "edge softness (°)",
+                "type": "float",
+                "min": 0,
+                "max": 60,
+                "step": 1,
+                "default": 15,
+            },
+            {
+                "name": "sat_min",
+                "type": "float",
+                "min": 0,
+                "max": 1,
+                "step": 0.01,
+                "default": 0.15,
+            },
+            {
+                "name": "val_min",
+                "type": "float",
+                "min": 0,
+                "max": 1,
+                "step": 0.01,
+                "default": 0.05,
+            },
+            {
+                "name": "val_max",
+                "type": "float",
+                "min": 0,
+                "max": 1,
+                "step": 0.01,
+                "default": 1,
+            },
+            {
+                "name": "intensity",
+                "type": "enum",
+                "options": ["saturation", "darkness", "value", "mask"],
+                "default": "saturation",
+            },
+            {
+                "name": "phi",
+                "type": "float",
+                "min": 90,
+                "max": 100,
+                "step": 0.1,
+                "default": 99,
+            },
+            {
+                "name": "gamma",
+                "type": "float",
+                "min": 0.3,
+                "max": 3,
+                "step": 0.05,
+                "default": 1,
+            },
+            {"name": "invert", "type": "bool", "default": False},
+        ],
+    },
     "od": {
         "input": "rgb",
         "params": [
@@ -706,6 +875,7 @@ STAIN_CHOICES = (
     "fluorescence",
     "fluorescence-blur",
     "inverted-fluorescence",
+    "color-range",
     "od",
     "colorful-standardizer",
     "luminosity",

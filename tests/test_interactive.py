@@ -158,3 +158,28 @@ def test_fluorescence_blur_invert_matches_uninverted_original(tmp_path):
     assert {"name": "invert", "type": "bool", "default": False} in (
         processors.PARAM_SCHEMA["fluorescence-blur"]["params"]
     )
+
+
+def test_color_range_selects_hue_band(sample_files):
+    # Left half pure red, right half pure blue, plus a white strip.
+    rgb = np.zeros((64, 64, 3), dtype=np.uint8)
+    rgb[:, :32] = (220, 20, 20)
+    rgb[:, 32:] = (20, 20, 220)
+    rgb[:8] = 255
+    cls, _ = processors.PROCESSOR_REGISTRY["color-range"]
+
+    def run(**kw):
+        return processors.run_processor_on_thumbnail(
+            [cls, kw], rgb, sample_files["rgb"][1]
+        )
+
+    red = run(hue_center=0, hue_width=40)
+    assert red[8:, :32].min() > 200  # red selected
+    assert red[8:, 32:].max() == 0  # blue rejected
+    assert red[:8].max() == 0  # white background has no saturation
+
+    # Hue distance wraps around 360: a center of 350 still catches red.
+    assert run(hue_center=350, hue_width=40)[8:, :32].min() > 200
+
+    blue = run(hue_center=240, hue_width=40, invert=True)
+    assert blue[8:, 32:].max() < 55 and blue[8:, :32].min() == 255

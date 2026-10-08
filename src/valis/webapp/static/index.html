@@ -23,13 +23,17 @@
           <div class="canvas-wrap">
             <canvas class="preview" width="480" height="480"></canvas>
           </div>
+          <div class="view-toggle" role="radiogroup" aria-label="Preview">
+            <label><input type="radio" name="view-image" value="processed" checked /> Processed</label>
+            <label><input type="radio" name="view-image" value="original" /> Original</label>
+          </div>
           <div class="params resolution"></div>
           <div class="res-info muted"></div>
           <label class="ctrl">
             <span>Preprocessor</span>
             <select class="processor-select"></select>
           </label>
-          <div class="params"></div>
+          <div class="params proc-params"></div>
           <h3 class="geometry-title">Flip / rotate (before keypoints)</h3>
           <div class="params geometry"></div>
         </div>
@@ -39,13 +43,17 @@
           <div class="canvas-wrap">
             <canvas class="preview" width="480" height="480"></canvas>
           </div>
+          <div class="view-toggle" role="radiogroup" aria-label="Preview">
+            <label><input type="radio" name="view-reference" value="processed" checked /> Processed</label>
+            <label><input type="radio" name="view-reference" value="original" /> Original</label>
+          </div>
           <div class="params resolution"></div>
           <div class="res-info muted"></div>
           <label class="ctrl">
             <span>Preprocessor</span>
             <select class="processor-select"></select>
           </label>
-          <div class="params"></div>
+          <div class="params proc-params"></div>
         </div>
       </div>
 
