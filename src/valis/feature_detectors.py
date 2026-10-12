@@ -810,9 +810,9 @@ class DeDoDeFD(KorniaFD):
                 n=self.num_features,
                 pad_if_not_divisible=True,
             )
-            kp_pos_xy = res[0].detach().squeeze(0).numpy()
+            kp_pos_xy = res[0].detach().squeeze(0).cpu().numpy()
             scores = res[1].detach().cpu().numpy()
-            desc = res[2].detach().squeeze(0).numpy()
+            desc = res[2].detach().squeeze(0).cpu().numpy()
 
         return kp_pos_xy, desc
 
